@@ -1,0 +1,195 @@
+// Typed API client. Reads bearer token from localStorage (set on /signin).
+// In SaaS mode this token will be a Supabase JWT; in desktop dev it's the
+// per-launch token printed to the FastAPI stdout.
+"use client";
+
+import type {
+  Application,
+  ApplicationStatus,
+  Interview,
+  Job,
+  JobsPage,
+  MasterResume,
+  RecruiterContact,
+  SalaryDetails,
+  TailoredResume,
+  TailorQuota,
+  TailorResponse,
+} from "./types";
+
+const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+const TOKEN_KEY = "appname_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+export function setToken(t: string) {
+  window.localStorage.setItem(TOKEN_KEY, t);
+}
+export function clearToken() {
+  window.localStorage.removeItem(TOKEN_KEY);
+}
+
+class ApiError extends Error {
+  constructor(public status: number, public body: unknown, message: string) {
+    super(message);
+  }
+}
+
+async function request<T>(
+  path: string,
+  opts: RequestInit = {},
+): Promise<T> {
+  const token = getToken();
+  const headers = new Headers(opts.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (!headers.has("Content-Type") && opts.body && !(opts.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...opts, headers });
+  } catch (err) {
+    throw new ApiError(0, null, `Network error: ${(err as Error).message}`);
+  }
+
+  const ct = res.headers.get("content-type") || "";
+  const body = ct.includes("application/json")
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => "");
+
+  if (!res.ok) {
+    const detail =
+      typeof body === "object" && body && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : res.statusText;
+    throw new ApiError(res.status, body, `${res.status}: ${detail}`);
+  }
+  return body as T;
+}
+
+// ── Health & me ─────────────────────────────────────────────────────
+export const api = {
+  health: () => request<{ status: string; mode: string }>("/health"),
+  me: () => request<{ id: string; email: string; plan: string }>("/api/me"),
+  tailorQuota: () => request<TailorQuota>("/api/me/tailor-quota"),
+
+  // ── Jobs ──────────────────────────────────────────────────────────
+  jobs: (params: {
+    field?: string; level?: string; remote_type?: string;
+    salary_min?: number; quality_min?: number;
+    page?: number; page_size?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+    });
+    const qs = q.toString();
+    return request<JobsPage>(`/api/jobs${qs ? `?${qs}` : ""}`);
+  },
+  jobFields: () => request<{ fields: string[] }>("/api/jobs/fields"),
+  job: (id: string) => request<Job>(`/api/jobs/${id}`),
+  ingestJobs: (queries: string[] = ["software engineer"]) =>
+    request<{
+      fetched: number;
+      gated: number;
+      tagged: number;
+      inserted: number;
+      skipped: number;
+      expired_marked: number;
+    }>(
+      "/internal/jobs/fetch",
+      { method: "POST", body: JSON.stringify({ queries }) },
+    ),
+
+  // ── Resume ────────────────────────────────────────────────────────
+  uploadResume: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return request<{
+      id: string; parse_method: string;
+      contact_info: Record<string, string>;
+      skills_count: number; experience_count: number;
+    }>("/api/resume/upload", { method: "POST", body: fd });
+  },
+  masterResume: () => request<MasterResume>("/api/me/master-resume"),
+  putMasterResume: (body: Partial<MasterResume>) =>
+    request<MasterResume>("/api/me/master-resume", {
+      method: "PUT", body: JSON.stringify(body),
+    }),
+
+  // ── Applications ──────────────────────────────────────────────────
+  applications: (params: { status?: ApplicationStatus; starred?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set("status", params.status);
+    if (params.starred !== undefined) q.set("starred", String(params.starred));
+    const qs = q.toString();
+    return request<Application[]>(`/api/applications${qs ? `?${qs}` : ""}`);
+  },
+  application: (id: string) => request<Application>(`/api/applications/${id}`),
+  createApplication: (body: {
+    job_id?: string; title: string; company: string;
+    platform?: string; status?: ApplicationStatus; notes?: string; starred?: boolean;
+  }) => request<Application>("/api/applications", {
+    method: "POST", body: JSON.stringify(body),
+  }),
+  updateApplication: (id: string, patch: Partial<{
+    title: string; company: string; platform: string;
+    status: ApplicationStatus; status_note: string;
+    starred: boolean; applied_at: string; follow_up_date: string;
+    follow_up_notified: boolean; notes: string; tailored_resume_id: string;
+  }>) => request<Application>(`/api/applications/${id}`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  }),
+  deleteApplication: (id: string) => request<void>(`/api/applications/${id}`, { method: "DELETE" }),
+
+  // ── Sub-resources ─────────────────────────────────────────────────
+  contacts: (appId: string) =>
+    request<RecruiterContact[]>(`/api/applications/${appId}/contacts`),
+  addContact: (appId: string, body: Partial<RecruiterContact> & { name: string }) =>
+    request<RecruiterContact>(`/api/applications/${appId}/contacts`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  interviews: (appId: string) =>
+    request<Interview[]>(`/api/applications/${appId}/interviews`),
+  addInterview: (appId: string, body: Partial<Interview> & { round: string }) =>
+    request<Interview>(`/api/applications/${appId}/interviews`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  salary: (appId: string) =>
+    request<SalaryDetails[]>(`/api/applications/${appId}/salary`),
+  addSalary: (appId: string, body: Partial<SalaryDetails>) =>
+    request<SalaryDetails>(`/api/applications/${appId}/salary`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+
+  // ── Tailor ────────────────────────────────────────────────────────
+  tailor: (jobId: string) =>
+    request<TailorResponse>("/api/resume/tailor", {
+      method: "POST", body: JSON.stringify({ job_id: jobId }),
+    }),
+  tailoredResumes: (job_id?: string) => {
+    const q = job_id ? `?job_id=${encodeURIComponent(job_id)}` : "";
+    return request<TailoredResume[]>(`/api/tailored-resumes${q}`);
+  },
+  tailoredResume: (id: string) =>
+    request<TailoredResume>(`/api/tailored-resumes/${id}`),
+  tailoredPdfUrl: (id: string) => {
+    const token = getToken() || "";
+    // Bearer-protected — caller should fetch with auth, then create a blob URL.
+    return `${BASE}/api/tailored-resumes/${id}/pdf?_t=${token.slice(0, 8)}`;
+  },
+  fetchTailoredPdf: async (id: string): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/tailored-resumes/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
+    return res.blob();
+  },
+};
+
+export { ApiError };

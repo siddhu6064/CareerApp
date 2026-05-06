@@ -1,0 +1,953 @@
+"""SQLite implementation of StorageAdapter. Used in:
+
+  - Desktop mode (Phase 10) — only adapter
+  - SaaS dev — local dev without Supabase signup (set APPNAME_MODE=desktop)
+
+Uses aiosqlite for async access. Enforces the same async interface as
+SupabaseAdapter so endpoint code is identical across modes.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
+
+from backend.storage.base import StorageAdapter
+
+_SCHEMA_PATH = Path(__file__).parent / "sqlite_schema.sql"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z"
+
+
+def _add_days(iso_ts: str, days: int) -> str:
+    """Take an ISO timestamp, return ISO + N days."""
+    from datetime import timedelta
+    dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+    return (dt + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z"
+
+
+def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize JSON-encoded fields and normalize types for API output."""
+    import json as _json
+    out = dict(row)
+    if isinstance(out.get("tech_stack"), str):
+        try:
+            out["tech_stack"] = _json.loads(out["tech_stack"])
+        except (ValueError, TypeError):
+            out["tech_stack"] = []
+    return out
+
+
+def _row_to_resume(row: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize all JSON columns on a master_resumes row."""
+    import json as _json
+    out = dict(row)
+    for col in ("contact_info", "experience", "education", "skills",
+                "projects", "certifications"):
+        v = out.get(col)
+        if isinstance(v, str):
+            try:
+                out[col] = _json.loads(v)
+            except (ValueError, TypeError):
+                out[col] = None if col == "contact_info" else []
+    return out
+
+
+def _row_to_application(row: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize JSON columns + coerce SQLite ints to bools."""
+    import json as _json
+    out = dict(row)
+    if isinstance(out.get("status_history"), str):
+        try:
+            out["status_history"] = _json.loads(out["status_history"])
+        except (ValueError, TypeError):
+            out["status_history"] = []
+    out["starred"] = bool(out.get("starred"))
+    out["follow_up_notified"] = bool(out.get("follow_up_notified"))
+    return out
+
+
+def _row_to_tailored(row: dict[str, Any]) -> dict[str, Any]:
+    import json as _json
+    out = dict(row)
+    for col in ("match_points", "gaps", "keywords_added"):
+        v = out.get(col)
+        if isinstance(v, str):
+            try:
+                out[col] = _json.loads(v)
+            except (ValueError, TypeError):
+                out[col] = []
+    return out
+
+
+def _next_month_start(now: datetime) -> datetime:
+    """Return UTC datetime at the first day of the next month, 00:00."""
+    if now.month == 12:
+        return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+
+
+def _row_to_prep(row: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize JSON columns on an interview_prep row."""
+    import json as _json
+    out = dict(row)
+    for col in ("questions", "strengths", "gaps_to_address", "talking_points"):
+        v = out.get(col)
+        if isinstance(v, str):
+            try:
+                out[col] = _json.loads(v)
+            except (ValueError, TypeError):
+                out[col] = []
+    return out
+
+
+
+
+class SqliteAdapter(StorageAdapter):
+    def __init__(self, db_path: Path):
+        self._db_path = db_path
+        self._db: aiosqlite.Connection | None = None
+
+    # ── Lifecycle ────────────────────────────────────────────────────────
+    async def connect(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db = await aiosqlite.connect(str(self._db_path))
+        self._db.row_factory = aiosqlite.Row
+        # Enforce foreign keys + WAL for concurrent reads
+        await self._db.execute("PRAGMA foreign_keys = ON")
+        await self._db.execute("PRAGMA journal_mode = WAL")
+        await self._run_migrations()
+
+    async def disconnect(self) -> None:
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
+
+    async def healthcheck(self) -> dict[str, Any]:
+        assert self._db is not None
+        async with self._db.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1") as cur:
+            row = await cur.fetchone()
+        return {
+            "adapter": "sqlite",
+            "db_path": str(self._db_path),
+            "schema_version": row["version"] if row else None,
+        }
+
+    async def _run_migrations(self) -> None:
+        """Apply schema.sql idempotently. Future: read schema_version and apply deltas."""
+        assert self._db is not None
+        sql = _SCHEMA_PATH.read_text()
+        await self._db.executescript(sql)
+        await self._db.commit()
+
+    # ── Users ────────────────────────────────────────────────────────────
+    async def get_user(self, user_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def upsert_user(
+        self,
+        user_id: str,
+        email: str,
+        plan: str = "free",
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        now = _utc_now()
+        await self._db.execute(
+            """
+            INSERT INTO users (id, email, plan, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                email = excluded.email,
+                plan = excluded.plan,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, email, plan, now, now),
+        )
+        await self._db.commit()
+        user = await self.get_user(user_id)
+        assert user is not None
+        return user
+
+    async def increment_tailor_count(self, user_id: str) -> int:
+        assert self._db is not None
+        await self._db.execute(
+            """
+            UPDATE users
+            SET tailor_count_month = tailor_count_month + 1,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (_utc_now(), user_id),
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT tailor_count_month FROM users WHERE id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["tailor_count_month"]) if row else 0
+
+    # ── Settings ─────────────────────────────────────────────────────────
+    async def get_setting(self, key: str) -> str | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row["value"] if row else None
+
+    async def set_setting(self, key: str, value: str) -> None:
+        assert self._db is not None
+        await self._db.execute(
+            """
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, _utc_now()),
+        )
+        await self._db.commit()
+
+    # ── Jobs ─────────────────────────────────────────────────────────────
+    async def upsert_job(self, job: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+
+        now = _utc_now()
+        # Default 30-day TTL per PRD §14 Phase 2
+        expires_at = job.get("expires_at") or _add_days(now, 30)
+        tech_stack = job.get("tech_stack") or []
+        tech_stack_json = _json.dumps(tech_stack) if isinstance(tech_stack, list) else str(tech_stack)
+
+        await self._db.execute(
+            """
+            INSERT INTO jobs (
+                id, job_hash, title, company, location, remote_type, field, level,
+                tech_stack, jd_raw, apply_url, posted_date, source, quality_score,
+                salary_min, salary_max, active, expires_at, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
+            ON CONFLICT(job_hash) DO UPDATE SET
+                title         = excluded.title,
+                company       = excluded.company,
+                location      = excluded.location,
+                remote_type   = excluded.remote_type,
+                field         = excluded.field,
+                level         = excluded.level,
+                tech_stack    = excluded.tech_stack,
+                jd_raw        = excluded.jd_raw,
+                apply_url     = excluded.apply_url,
+                posted_date   = excluded.posted_date,
+                source        = excluded.source,
+                quality_score = excluded.quality_score,
+                salary_min    = excluded.salary_min,
+                salary_max    = excluded.salary_max,
+                active        = 1,
+                expires_at    = excluded.expires_at,
+                updated_at    = excluded.updated_at
+            """,
+            (
+                job["id"],
+                job["job_hash"],
+                job["title"],
+                job["company"],
+                job.get("location"),
+                job.get("remote_type"),
+                job.get("field"),
+                job.get("level"),
+                tech_stack_json,
+                job.get("jd_raw"),
+                job.get("apply_url"),
+                job.get("posted_date"),
+                job.get("source"),
+                job.get("quality_score"),
+                job.get("salary_min"),
+                job.get("salary_max"),
+                expires_at,
+                now,
+                now,
+            ),
+        )
+        await self._db.commit()
+        return job["id"]
+
+    async def get_job(self, job_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM jobs WHERE id = ? AND active = 1", (job_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return _row_to_job(dict(row))
+
+    async def list_jobs(
+        self,
+        *,
+        field: str | None = None,
+        level: str | None = None,
+        remote_type: str | None = None,
+        salary_min: int | None = None,
+        quality_min: int | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        page = max(1, page)
+        page_size = max(1, min(100, page_size))
+        offset = (page - 1) * page_size
+
+        where = ["active = 1"]
+        params: list[Any] = []
+        if field:
+            where.append("field = ?")
+            params.append(field)
+        if level:
+            where.append("level = ?")
+            params.append(level)
+        if remote_type:
+            where.append("remote_type = ?")
+            params.append(remote_type)
+        if salary_min is not None:
+            where.append("salary_max >= ?")
+            params.append(salary_min)
+        if quality_min is not None:
+            where.append("quality_score >= ?")
+            params.append(quality_min)
+        where_sql = " AND ".join(where)
+
+        # Total
+        async with self._db.execute(
+            f"SELECT COUNT(*) AS c FROM jobs WHERE {where_sql}", params
+        ) as cur:
+            row = await cur.fetchone()
+        total = int(row["c"]) if row else 0
+
+        # Page
+        async with self._db.execute(
+            f"""
+            SELECT * FROM jobs
+            WHERE {where_sql}
+            ORDER BY quality_score DESC NULLS LAST, posted_date DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, page_size, offset),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        return {
+            "items": [_row_to_job(dict(r)) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    async def count_jobs_by_field(self) -> dict[str, int]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT field, COUNT(*) AS c FROM jobs WHERE active = 1 AND field IS NOT NULL GROUP BY field"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {r["field"]: int(r["c"]) for r in rows}
+
+    async def mark_expired_jobs(self) -> int:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE jobs SET active = 0 WHERE active = 1 AND expires_at < ?",
+            (_utc_now(),),
+        )
+        await self._db.commit()
+        return cur.rowcount or 0
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Phase 3 — Resume + Tracker
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Master resumes ───────────────────────────────────────────────────
+    async def upsert_master_resume(self, resume: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+        import uuid
+
+        rid = resume.get("id") or f"mr_{uuid.uuid4().hex[:16]}"
+        now = _utc_now()
+
+        def _j(v):
+            return _json.dumps(v) if v is not None else None
+
+        await self._db.execute(
+            """
+            INSERT INTO master_resumes (
+                id, user_id, contact_info, summary, experience, education, skills,
+                projects, certifications, pdf_path, source, parse_method,
+                raw_filename, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                rid,
+                resume["user_id"],
+                _j(resume.get("contact_info")),
+                resume.get("summary"),
+                _j(resume.get("experience") or []),
+                _j(resume.get("education") or []),
+                _j(resume.get("skills") or []),
+                _j(resume.get("projects") or []),
+                _j(resume.get("certifications") or []),
+                resume.get("pdf_path"),
+                resume.get("source", "app"),
+                resume.get("parse_method"),
+                resume.get("raw_filename"),
+                now, now,
+            ),
+        )
+        await self._db.commit()
+        return rid
+
+    async def get_active_master_resume(self, user_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM master_resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_resume(dict(row)) if row else None
+
+    async def get_master_resume(self, resume_id: str, user_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM master_resumes WHERE id = ? AND user_id = ?",
+            (resume_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_resume(dict(row)) if row else None
+
+    # ── Applications ─────────────────────────────────────────────────────
+    async def create_application(self, app: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+        import uuid
+
+        aid = app.get("id") or f"app_{uuid.uuid4().hex[:16]}"
+        now = _utc_now()
+        status = app.get("status", "saved")
+        history = [{"status": status, "changed_at": now, "note": "created"}]
+
+        await self._db.execute(
+            """
+            INSERT INTO applications (
+                id, user_id, job_id, tailored_resume_id, title, company, platform,
+                status, status_history, starred, applied_at, follow_up_date,
+                follow_up_notified, notes, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)
+            """,
+            (
+                aid,
+                app["user_id"],
+                app.get("job_id"),
+                app.get("tailored_resume_id"),
+                app["title"],
+                app["company"],
+                app.get("platform"),
+                status,
+                _json.dumps(history),
+                1 if app.get("starred") else 0,
+                app.get("applied_at"),
+                app.get("follow_up_date"),
+                app.get("notes"),
+                now, now,
+            ),
+        )
+        await self._db.commit()
+        return aid
+
+    async def get_application(self, application_id: str, user_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM applications WHERE id = ? AND user_id = ?",
+            (application_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_application(dict(row)) if row else None
+
+    async def list_applications(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        starred: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        where = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if starred is not None:
+            where.append("starred = ?")
+            params.append(1 if starred else 0)
+
+        async with self._db.execute(
+            f"SELECT * FROM applications WHERE {' AND '.join(where)} ORDER BY updated_at DESC",
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_application(dict(r)) for r in rows]
+
+    async def update_application(
+        self,
+        application_id: str,
+        user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        import json as _json
+
+        existing = await self.get_application(application_id, user_id)
+        if existing is None:
+            return None
+
+        now = _utc_now()
+        sets: list[str] = []
+        params: list[Any] = []
+
+        # Status change → append to status_history
+        if "status" in patch and patch["status"] != existing["status"]:
+            history = existing.get("status_history") or []
+            history.append({
+                "status": patch["status"],
+                "changed_at": now,
+                "note": patch.get("status_note", ""),
+            })
+            sets.append("status = ?")
+            params.append(patch["status"])
+            sets.append("status_history = ?")
+            params.append(_json.dumps(history))
+            # Convenience: setting status=applied stamps applied_at
+            if patch["status"] == "applied" and not existing.get("applied_at"):
+                sets.append("applied_at = ?")
+                params.append(now)
+
+        for col in ("title", "company", "platform", "notes", "follow_up_date",
+                    "applied_at", "tailored_resume_id"):
+            if col in patch:
+                sets.append(f"{col} = ?")
+                params.append(patch[col])
+
+        if "starred" in patch:
+            sets.append("starred = ?")
+            params.append(1 if patch["starred"] else 0)
+        if "follow_up_notified" in patch:
+            sets.append("follow_up_notified = ?")
+            params.append(1 if patch["follow_up_notified"] else 0)
+
+        if not sets:
+            return existing  # no-op patch
+
+        sets.append("updated_at = ?")
+        params.append(now)
+        params.extend([application_id, user_id])
+
+        await self._db.execute(
+            f"UPDATE applications SET {', '.join(sets)} WHERE id = ? AND user_id = ?",
+            params,
+        )
+        await self._db.commit()
+        return await self.get_application(application_id, user_id)
+
+    async def delete_application(self, application_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM applications WHERE id = ? AND user_id = ?",
+            (application_id, user_id),
+        )
+        await self._db.commit()
+        return (cur.rowcount or 0) > 0
+
+    async def count_active_applications(self, user_id: str) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            """
+            SELECT COUNT(*) AS c FROM applications
+            WHERE user_id = ? AND status NOT IN ('rejected', 'accepted')
+            """,
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["c"]) if row else 0
+
+    # ── Recruiter contacts ───────────────────────────────────────────────
+    async def add_recruiter_contact(self, contact: dict[str, Any]) -> str:
+        assert self._db is not None
+        import uuid
+        cid = contact.get("id") or f"rc_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO recruiter_contacts (id, application_id, name, role, email, phone, linkedin_url, notes)
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                cid, contact["application_id"], contact["name"], contact.get("role"),
+                contact.get("email"), contact.get("phone"), contact.get("linkedin_url"),
+                contact.get("notes"),
+            ),
+        )
+        await self._db.commit()
+        return cid
+
+    async def list_recruiter_contacts(self, application_id: str) -> list[dict[str, Any]]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM recruiter_contacts WHERE application_id = ? ORDER BY created_at DESC",
+            (application_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Interviews ───────────────────────────────────────────────────────
+    async def add_interview(self, interview: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+        import uuid
+        iid = interview.get("id") or f"iv_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO interviews (id, application_id, round, scheduled_at, duration_min,
+                                    interviewer_names, location, notes, outcome)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                iid, interview["application_id"], interview["round"],
+                interview.get("scheduled_at"), interview.get("duration_min"),
+                _json.dumps(interview.get("interviewer_names") or []),
+                interview.get("location"), interview.get("notes"),
+                interview.get("outcome", "pending"),
+            ),
+        )
+        await self._db.commit()
+        return iid
+
+    async def list_interviews(self, application_id: str) -> list[dict[str, Any]]:
+        assert self._db is not None
+        import json as _json
+        async with self._db.execute(
+            "SELECT * FROM interviews WHERE application_id = ? ORDER BY scheduled_at ASC",
+            (application_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["interviewer_names"] = _json.loads(d.get("interviewer_names") or "[]")
+            except (ValueError, TypeError):
+                d["interviewer_names"] = []
+            out.append(d)
+        return out
+
+    async def update_interview(
+        self, interview_id: str, application_id: str, patch: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        import json as _json
+
+        sets: list[str] = []
+        params: list[Any] = []
+        for col in ("round", "scheduled_at", "duration_min", "location", "notes", "outcome"):
+            if col in patch:
+                sets.append(f"{col} = ?")
+                params.append(patch[col])
+        if "interviewer_names" in patch:
+            sets.append("interviewer_names = ?")
+            params.append(_json.dumps(patch["interviewer_names"]))
+        if not sets:
+            return None
+        params.extend([interview_id, application_id])
+        await self._db.execute(
+            f"UPDATE interviews SET {', '.join(sets)} WHERE id = ? AND application_id = ?",
+            params,
+        )
+        await self._db.commit()
+        rows = await self.list_interviews(application_id)
+        return next((iv for iv in rows if iv["id"] == interview_id), None)
+
+    # ── Salary details ───────────────────────────────────────────────────
+    async def add_salary_details(self, salary: dict[str, Any]) -> str:
+        assert self._db is not None
+        import uuid
+        sid = salary.get("id") or f"sd_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO salary_details (id, application_id, base_min, base_max, bonus,
+                                        equity_value, equity_vesting, currency, notes)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                sid, salary["application_id"],
+                salary.get("base_min"), salary.get("base_max"),
+                salary.get("bonus"), salary.get("equity_value"),
+                salary.get("equity_vesting"), salary.get("currency", "USD"),
+                salary.get("notes"),
+            ),
+        )
+        await self._db.commit()
+        return sid
+
+    async def list_salary_details(self, application_id: str) -> list[dict[str, Any]]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM salary_details WHERE application_id = ? ORDER BY created_at DESC",
+            (application_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Phase 5 — Tailor
+    # ══════════════════════════════════════════════════════════════════════
+    async def save_tailored_resume(self, tailored: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+        import uuid
+
+        tid = tailored.get("id") or f"tr_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO tailored_resumes (
+                id, user_id, job_id, master_resume_id, content_markdown,
+                ats_score, match_points, gaps, keywords_added,
+                pdf_path, source, sonnet_method, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                tid,
+                tailored["user_id"],
+                tailored.get("job_id"),
+                tailored["master_resume_id"],
+                tailored.get("content_markdown"),
+                tailored.get("ats_score"),
+                _json.dumps(tailored.get("match_points") or []),
+                _json.dumps(tailored.get("gaps") or []),
+                _json.dumps(tailored.get("keywords_added") or []),
+                tailored.get("pdf_path"),
+                tailored.get("source", "app"),
+                tailored.get("sonnet_method"),
+                _utc_now(),
+            ),
+        )
+        await self._db.commit()
+        return tid
+
+    async def get_tailored_resume(
+        self, tailored_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM tailored_resumes WHERE id = ? AND user_id = ?",
+            (tailored_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_tailored(dict(row)) if row else None
+
+    async def list_tailored_resumes(
+        self, user_id: str, *, job_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        if job_id:
+            sql = "SELECT * FROM tailored_resumes WHERE user_id = ? AND job_id = ? ORDER BY created_at DESC LIMIT ?"
+            params: tuple = (user_id, job_id, limit)
+        else:
+            sql = "SELECT * FROM tailored_resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+            params = (user_id, limit)
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_tailored(dict(r)) for r in rows]
+
+    async def reset_tailor_count_if_due(self, user_id: str) -> int:
+        assert self._db is not None
+        from datetime import datetime as _dt, timezone as _tz
+
+        async with self._db.execute(
+            "SELECT tailor_count_month, tailor_count_reset_at FROM users WHERE id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return 0
+        count = int(row["tailor_count_month"])
+        reset_at = row["tailor_count_reset_at"]
+
+        now = _dt.now(_tz.utc)
+
+        # First time — set reset window to start of next month
+        if not reset_at:
+            next_reset = _next_month_start(now)
+            await self._db.execute(
+                "UPDATE users SET tailor_count_reset_at = ? WHERE id = ?",
+                (next_reset.strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z", user_id),
+            )
+            await self._db.commit()
+            return count
+
+        # Window elapsed → reset
+        try:
+            reset_dt = _dt.fromisoformat(reset_at.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            reset_dt = now  # malformed — force reset
+        if now >= reset_dt:
+            next_reset = _next_month_start(now)
+            await self._db.execute(
+                """
+                UPDATE users
+                SET tailor_count_month = 0,
+                    tailor_count_reset_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    next_reset.strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z",
+                    _utc_now(),
+                    user_id,
+                ),
+            )
+            await self._db.commit()
+            return 0
+        return count
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Phase 8 — Cover letters + interview prep
+    # ══════════════════════════════════════════════════════════════════════
+    async def save_cover_letter(self, cover: dict[str, Any]) -> str:
+        assert self._db is not None
+        import uuid
+        cid = cover.get("id") or f"cl_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO cover_letters (
+                id, user_id, job_id, tailored_resume_id, content_markdown,
+                tone, pdf_path, sonnet_method, tokens_in, tokens_out, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                cid,
+                cover["user_id"],
+                cover["job_id"],
+                cover.get("tailored_resume_id"),
+                cover["content_markdown"],
+                cover.get("tone", "professional"),
+                cover.get("pdf_path"),
+                cover.get("sonnet_method"),
+                int(cover.get("tokens_in") or 0),
+                int(cover.get("tokens_out") or 0),
+                _utc_now(),
+            ),
+        )
+        await self._db.commit()
+        return cid
+
+    async def get_cover_letter(
+        self, cover_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM cover_letters WHERE id = ? AND user_id = ?",
+            (cover_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_cover_letters(
+        self, user_id: str, *, job_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        if job_id:
+            sql = ("SELECT * FROM cover_letters WHERE user_id = ? AND job_id = ? "
+                   "ORDER BY created_at DESC LIMIT ?")
+            params: tuple = (user_id, job_id, limit)
+        else:
+            sql = ("SELECT * FROM cover_letters WHERE user_id = ? "
+                   "ORDER BY created_at DESC LIMIT ?")
+            params = (user_id, limit)
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def save_interview_prep(self, prep: dict[str, Any]) -> str:
+        assert self._db is not None
+        import json as _json
+        import uuid
+        pid = prep.get("id") or f"ip_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO interview_prep (
+                id, user_id, job_id, questions, strengths, gaps_to_address,
+                talking_points, haiku_method, tokens_in, tokens_out, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                pid,
+                prep["user_id"],
+                prep["job_id"],
+                _json.dumps(prep.get("questions") or []),
+                _json.dumps(prep.get("strengths") or []),
+                _json.dumps(prep.get("gaps_to_address") or []),
+                _json.dumps(prep.get("talking_points") or []),
+                prep.get("haiku_method"),
+                int(prep.get("tokens_in") or 0),
+                int(prep.get("tokens_out") or 0),
+                _utc_now(),
+            ),
+        )
+        await self._db.commit()
+        return pid
+
+    async def get_interview_prep(
+        self, prep_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM interview_prep WHERE id = ? AND user_id = ?",
+            (prep_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_prep(dict(row)) if row else None
+
+    async def get_latest_interview_prep_for_job(
+        self, user_id: str, job_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            """
+            SELECT * FROM interview_prep
+            WHERE user_id = ? AND job_id = ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (user_id, job_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row_to_prep(dict(row)) if row else None
+
+    async def list_interview_prep(
+        self, user_id: str, *, job_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        if job_id:
+            sql = ("SELECT * FROM interview_prep WHERE user_id = ? AND job_id = ? "
+                   "ORDER BY created_at DESC LIMIT ?")
+            params: tuple = (user_id, job_id, limit)
+        else:
+            sql = ("SELECT * FROM interview_prep WHERE user_id = ? "
+                   "ORDER BY created_at DESC LIMIT ?")
+            params = (user_id, limit)
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_prep(dict(r)) for r in rows]

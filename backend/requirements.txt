@@ -1,0 +1,27 @@
+# Production-pinned. Versions match what passes the 53-test suite.
+
+# ── Web framework ─────────────────────────────────────────────────
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+pydantic==2.13.4
+python-multipart==0.0.27
+
+# ── Storage ───────────────────────────────────────────────────────
+aiosqlite==0.22.1
+# supabase==2.x — added when SaaS signup happens
+
+# ── AI ────────────────────────────────────────────────────────────
+anthropic>=0.45.0,<1.0.0
+
+# ── Network ───────────────────────────────────────────────────────
+httpx==0.28.1
+
+# ── PDF ───────────────────────────────────────────────────────────
+weasyprint==68.1
+# pdfplumber — added with full PDF resume parsing
+
+# ── Email ─────────────────────────────────────────────────────────
+# resend>=2.0.0  — added with Phase 6 digest
+
+# ── Auth (SaaS, Phase 6) ──────────────────────────────────────────
+# python-jose[cryptography]>=3.3.0  — added when SupabaseAdapter is implemented

@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #5B21B6;
+  --color-brand-lt: #7C3AED;
+  --color-brand-bg: #EDE9FE;
+  --color-ink: #111827;
+  --color-ink-soft: #4B5563;
+  --color-border: #E5E7EB;
+  --color-card: #FFFFFF;
+  --color-bg: #F9FAFB;
+}
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Status badges (8 stages) */
+.badge-saved        { background:#F3F4F6; color:#374151; }
+.badge-applied      { background:#DBEAFE; color:#1E40AF; }
+.badge-phone_screen { background:#FEF3C7; color:#92400E; }
+.badge-technical    { background:#FCE7F3; color:#9D174D; }
+.badge-onsite       { background:#E0E7FF; color:#3730A3; }
+.badge-offer        { background:#D1FAE5; color:#065F46; }
+.badge-accepted     { background:#BBF7D0; color:#14532D; }
+.badge-rejected     { background:#FEE2E2; color:#991B1B; }
+
+.badge {
+  display:inline-flex; align-items:center;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+
+.kanban-col {
+  min-width: 280px; flex: 0 0 280px;
+  background: #F3F4F6; border-radius: 8px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.kanban-col.drag-over { background: var(--color-brand-bg); outline: 2px dashed var(--color-brand-lt); }
+.kanban-card {
+  background: var(--color-card); border:1px solid var(--color-border);
+  border-radius: 6px; padding: 10px; cursor: grab;
+  transition: box-shadow .12s;
+}
+.kanban-card:hover { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.kanban-card:active { cursor: grabbing; }
+.kanban-card.dragging { opacity: .4; }

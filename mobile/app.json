@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "AppName",
+    "slug": "appname",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "appname",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.appname.mobile"
+    },
+    "android": {
+      "package": "com.appname.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#5B21B6"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "http://127.0.0.1:8000"
+    }
+  }
+}
