@@ -7,14 +7,12 @@
     "scheme": "appname",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#5B21B6"
     },
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.appname.app",
@@ -24,9 +22,11 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "[AppName] does not access your camera.",
         "NSPhotoLibraryUsageDescription": "[AppName] uses your photo library only when you choose to upload a resume."
-      }
+      },
+      "associatedDomains": [
+        "applinks:app.appname.io"
+      ]
     },
-
     "android": {
       "package": "com.appname.app",
       "versionCode": 1,
@@ -38,13 +38,43 @@
         "android.permission.INTERNET",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.appname.io"
+            },
+            {
+              "scheme": "http",
+              "host": "app.appname.io"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "appname"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
-
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -56,18 +86,15 @@
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true
     },
-
     "extra": {
       "apiUrl": "http://127.0.0.1:8000",
       "eas": {
         "projectId": "REPLACE_WITH_PROJECT_ID_FROM_eas_init"
       }
     },
-
     "owner": "REPLACE_WITH_EXPO_USERNAME",
     "runtimeVersion": {
       "policy": "appVersion"

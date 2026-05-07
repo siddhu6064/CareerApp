@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { useApplicationsRealtime } from "@/lib/realtime";
 import {
   APPLICATION_STATUSES,
   STATUS_LABEL,
   type Application,
   type ApplicationStatus,
 } from "@/lib/types";
+import { AddApplicationModal } from "@/components/AddApplicationModal";
 
 export default function TrackerPage() {
   const authed = useStore((s) => s.authed);
@@ -17,10 +19,12 @@ export default function TrackerPage() {
   const setApps = useStore((s) => s.setApplications);
   const patch = useStore((s) => s.patchApplication);
   const remove = useStore((s) => s.removeApplication);
+  const addApp = useStore((s) => s.addApplication);
 
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     if (!authed) return;
@@ -30,6 +34,21 @@ export default function TrackerPage() {
       .catch((e: Error) => setErr(e.message))
       .finally(() => setBusy(false));
   }, [authed, setApps]);
+
+  // Supabase Realtime — no-op when NEXT_PUBLIC_SUPABASE_REALTIME_ENABLED != "true"
+  const handleInsert = useCallback(
+    (row: Record<string, unknown>) => addApp(row as unknown as Application),
+    [addApp],
+  );
+  const handleUpdate = useCallback(
+    (row: Record<string, unknown>) => patch(row.id as string, row as unknown as Partial<Application>),
+    [patch],
+  );
+  const handleDelete = useCallback(
+    (row: Record<string, unknown>) => remove(row.id as string),
+    [remove],
+  );
+  useApplicationsRealtime({ enabled: authed, onInsert: handleInsert, onUpdate: handleUpdate, onDelete: handleDelete });
 
   async function moveTo(id: string, status: ApplicationStatus) {
     const old = apps.find((a) => a.id === id);
@@ -72,13 +91,28 @@ export default function TrackerPage() {
         <h1 className="text-xl font-semibold">
           Tracker <span className="text-[var(--color-ink-soft)] font-normal">({apps.length})</span>
         </h1>
-        <Link
-          href="/jobs"
-          className="text-sm px-3 py-1.5 bg-white border border-[var(--color-brand)] text-[var(--color-brand)] rounded hover:bg-[var(--color-brand-bg)]"
-        >
-          + Add from jobs
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="text-sm px-3 py-1.5 bg-[var(--color-brand)] text-white rounded hover:opacity-90"
+          >
+            + Add manually
+          </button>
+          <Link
+            href="/jobs"
+            className="text-sm px-3 py-1.5 bg-white border border-[var(--color-brand)] text-[var(--color-brand)] rounded hover:bg-[var(--color-brand-bg)]"
+          >
+            Browse jobs
+          </Link>
+        </div>
       </div>
+
+      {showAddModal && (
+        <AddApplicationModal
+          onCreated={(app) => { addApp(app); setShowAddModal(false); }}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
 
       {err && <p className="text-sm text-red-600">{err}</p>}
       {busy && <p className="text-sm text-[var(--color-ink-soft)]">Loading…</p>}
@@ -86,7 +120,7 @@ export default function TrackerPage() {
       {!busy && apps.length === 0 && (
         <div className="text-center py-16 text-[var(--color-ink-soft)] bg-white border border-[var(--color-border)] rounded-lg">
           <p>No applications yet.</p>
-          <p className="text-sm mt-1">Browse <Link href="/jobs" className="text-[var(--color-brand)] underline">Jobs</Link> and save one.</p>
+          <p className="text-sm mt-1">Browse <Link href="/jobs" className="text-[var(--color-brand)] underline">Jobs</Link> and save one, or add manually above.</p>
         </div>
       )}
 

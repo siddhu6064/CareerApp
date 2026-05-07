@@ -40,6 +40,16 @@ class SupabaseAdapter(StorageAdapter):
     async def upsert_user(self, user_id: str, email: str, plan: str = "free") -> dict[str, Any]:
         raise NotImplementedError
 
+    async def update_user_preferences(
+        self,
+        user_id: str,
+        field: str | None = None,
+        level: str | None = None,
+        location: str | None = None,
+        remote_pref: str | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
     async def increment_tailor_count(self, user_id: str) -> int:
         raise NotImplementedError
 

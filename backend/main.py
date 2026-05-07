@@ -137,6 +137,38 @@ async def get_me(
     )
 
 
+class UserPreferencesUpdate(StrictBody):
+    field: str | None = None
+    level: str | None = None
+    location: str | None = None
+    remote_pref: str | None = None
+
+
+@app.put("/api/me/preferences", response_model=UserResponse)
+async def put_me_preferences(
+    body: UserPreferencesUpdate,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> UserResponse:
+    user = await storage.update_user_preferences(
+        user_id=user_id,
+        field=body.field,
+        level=body.level,
+        location=body.location,
+        remote_pref=body.remote_pref,
+    )
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        plan=user["plan"],
+        tailor_count_month=int(user["tailor_count_month"]),
+        field=user.get("field"),
+        level=user.get("level"),
+        location=user.get("location"),
+        remote_pref=user.get("remote_pref"),
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Phase 2 — Job Feed
 # ══════════════════════════════════════════════════════════════════════

@@ -94,7 +94,12 @@ async function request<T>(
 // ── Health & me ─────────────────────────────────────────────────────
 export const api = {
   health: () => request<{ status: string; mode: string }>("/health"),
-  me: () => request<{ id: string; email: string; plan: string }>("/api/me"),
+  me: () => request<{ id: string; email: string; plan: string; field: string | null; level: string | null; location: string | null; remote_pref: string | null }>("/api/me"),
+  updatePreferences: (body: { field?: string | null; level?: string | null; location?: string | null; remote_pref?: string | null }) =>
+    request<{ id: string; email: string; plan: string; field: string | null; level: string | null; location: string | null; remote_pref: string | null }>(
+      "/api/me/preferences",
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
   tailorQuota: () => request<TailorQuota>("/api/me/tailor-quota"),
 
   // ── Jobs ──────────────────────────────────────────────────────────

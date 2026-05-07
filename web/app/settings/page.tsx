@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { DesktopBYOKCard } from "@/components/desktop/DesktopBYOKCard";
+import type { Field, Level, RemoteType } from "@/lib/types";
 
 interface Prefs {
   digest_enabled: boolean;
@@ -13,6 +14,25 @@ interface Prefs {
   timezone: string;
 }
 
+interface UserPrefs {
+  field: string | null;
+  level: string | null;
+  location: string | null;
+  remote_pref: string | null;
+}
+
+const FIELDS: Field[] = [
+  "Engineering", "Data", "Design", "Product",
+  "Marketing", "Sales", "Operations", "Finance", "Other",
+];
+const LEVELS: Level[] = ["intern", "entry", "mid", "senior", "staff", "principal", "any"];
+const REMOTE_OPTS: { value: RemoteType; label: string }[] = [
+  { value: "remote",  label: "Remote" },
+  { value: "hybrid",  label: "Hybrid" },
+  { value: "onsite",  label: "Onsite" },
+  { value: "any",     label: "Any"    },
+];
+
 export default function SettingsPage() {
   const authed = useStore((s) => s.authed);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -21,11 +41,23 @@ export default function SettingsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState<keyof Prefs | null>(null);
 
+  // Job preferences state
+  const [userPrefs, setUserPrefs] = useState<UserPrefs>({ field: null, level: null, location: null, remote_pref: null });
+  const [prefsBusy, setPrefsBusy] = useState(false);
+  const [prefsFlash, setPrefsFlash] = useState(false);
+  const [prefsErr, setPrefsErr] = useState<string | null>(null);
+
   useEffect(() => {
     if (!authed) return;
     setBusy(true);
-    api.notificationPrefs()
-      .then((p) => setPrefs(p))
+    Promise.all([
+      api.notificationPrefs(),
+      api.me(),
+    ])
+      .then(([p, me]) => {
+        setPrefs(p);
+        setUserPrefs({ field: me.field, level: me.level, location: me.location, remote_pref: me.remote_pref });
+      })
       .catch((e: Error) => setErr(e.message))
       .finally(() => setBusy(false));
   }, [authed]);
@@ -49,6 +81,20 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveUserPrefs() {
+    setPrefsBusy(true); setPrefsErr(null);
+    try {
+      const updated = await api.updatePreferences(userPrefs);
+      setUserPrefs({ field: updated.field, level: updated.level, location: updated.location, remote_pref: updated.remote_pref });
+      setPrefsFlash(true);
+      setTimeout(() => setPrefsFlash(false), 1500);
+    } catch (e) {
+      setPrefsErr((e as Error).message);
+    } finally {
+      setPrefsBusy(false);
+    }
+  }
+
   if (!authed) return null;
   if (busy) return <p className="text-sm text-[var(--color-ink-soft)]">Loading…</p>;
   if (!prefs) return <p className="text-sm text-red-600">{err ?? "Couldn't load settings."}</p>;
@@ -61,6 +107,94 @@ export default function SettingsPage() {
       {/* Phase 10: shows only in desktop mode (Tauri-injected api_url) */}
       <DesktopBYOKCard />
 
+      {/* ── Job Preferences ──────────────────────────────────────── */}
+      <section className="bg-white border border-[var(--color-border)] rounded-lg p-6 space-y-5">
+        <h2 className="font-semibold">Job preferences</h2>
+        <p className="text-xs text-[var(--color-ink-soft)] -mt-3">
+          Used to rank your daily digest and filter job suggestions.
+        </p>
+
+        <div>
+          <p className="text-xs font-medium text-[var(--color-ink-soft)] uppercase tracking-wide mb-2">Field</p>
+          <div className="flex flex-wrap gap-2">
+            {FIELDS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setUserPrefs((p) => ({ ...p, field: p.field === f ? null : f }))}
+                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                  userPrefs.field === f
+                    ? "bg-[var(--color-brand)] text-white border-[var(--color-brand)]"
+                    : "bg-white text-[var(--color-ink)] border-[var(--color-border)] hover:border-[var(--color-brand)]"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-ink-soft)] uppercase tracking-wide mb-1.5">
+              Level
+            </label>
+            <select
+              value={userPrefs.level ?? ""}
+              onChange={(e) => setUserPrefs((p) => ({ ...p, level: e.target.value || null }))}
+              className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]"
+            >
+              <option value="">Any</option>
+              {LEVELS.map((l) => (
+                <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-ink-soft)] uppercase tracking-wide mb-1.5">
+              Remote
+            </label>
+            <select
+              value={userPrefs.remote_pref ?? ""}
+              onChange={(e) => setUserPrefs((p) => ({ ...p, remote_pref: e.target.value || null }))}
+              className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]"
+            >
+              <option value="">No preference</option>
+              {REMOTE_OPTS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-ink-soft)] uppercase tracking-wide mb-1.5">
+            Location
+          </label>
+          <input
+            value={userPrefs.location ?? ""}
+            onChange={(e) => setUserPrefs((p) => ({ ...p, location: e.target.value || null }))}
+            placeholder="e.g. San Francisco, CA"
+            className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]"
+          />
+        </div>
+
+        {prefsErr && <p className="text-sm text-red-600">{prefsErr}</p>}
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={saveUserPrefs}
+            disabled={prefsBusy}
+            className="px-4 py-2 bg-[var(--color-brand)] text-white text-sm rounded-lg font-medium disabled:opacity-50 hover:opacity-90"
+          >
+            {prefsBusy ? "Saving…" : "Save preferences"}
+          </button>
+          {prefsFlash && <span className="text-sm text-green-700">✓ Saved</span>}
+        </div>
+      </section>
+
+      {/* ── Daily digest ─────────────────────────────────────────── */}
       <section className="bg-white border border-[var(--color-border)] rounded-lg p-6 space-y-4">
         <h2 className="font-semibold">Daily digest email</h2>
 

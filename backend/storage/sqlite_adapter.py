@@ -197,6 +197,35 @@ class SqliteAdapter(StorageAdapter):
         assert user is not None
         return user
 
+    async def update_user_preferences(
+        self,
+        user_id: str,
+        field: str | None = None,
+        level: str | None = None,
+        location: str | None = None,
+        remote_pref: str | None = None,
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        now = _utc_now()
+        sets, params = ["updated_at = ?"], [now]
+        if field is not None:
+            sets.append("field = ?"); params.append(field)
+        if level is not None:
+            sets.append("level = ?"); params.append(level)
+        if location is not None:
+            sets.append("location = ?"); params.append(location)
+        if remote_pref is not None:
+            sets.append("remote_pref = ?"); params.append(remote_pref)
+        params.append(user_id)
+        await self._db.execute(
+            f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        await self._db.commit()
+        user = await self.get_user(user_id)
+        assert user is not None
+        return user
+
     async def increment_tailor_count(self, user_id: str) -> int:
         assert self._db is not None
         await self._db.execute(

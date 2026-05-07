@@ -12,6 +12,7 @@ interface AppState {
 
   applications: Application[];
   setApplications: (apps: Application[]) => void;
+  addApplication: (app: Application) => void;
   patchApplication: (id: string, patch: Partial<Application>) => void;
   removeApplication: (id: string) => void;
 
@@ -28,6 +29,8 @@ export const useStore = create<AppState>((set) => ({
 
   applications: [],
   setApplications: (apps) => set({ applications: apps }),
+  addApplication: (app) =>
+    set((state) => ({ applications: [app, ...state.applications] })),
   patchApplication: (id, patch) =>
     set((state) => ({
       applications: state.applications.map((a) =>

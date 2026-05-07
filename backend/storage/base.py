@@ -42,6 +42,17 @@ class StorageAdapter(ABC):
         """Insert or update a user row. Returns the resulting row."""
 
     @abstractmethod
+    async def update_user_preferences(
+        self,
+        user_id: str,
+        field: str | None = None,
+        level: str | None = None,
+        location: str | None = None,
+        remote_pref: str | None = None,
+    ) -> dict[str, Any]:
+        """Patch job-preference columns on the users row. Returns updated row."""
+
+    @abstractmethod
     async def increment_tailor_count(self, user_id: str) -> int:
         """Increment monthly tailor count, return new value. Used for Free tier gate."""
 
