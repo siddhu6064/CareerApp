@@ -112,3 +112,9 @@ class SupabaseAdapter(StorageAdapter):
     async def applications_with_upcoming_interviews(self, **kwargs): raise NotImplementedError
     async def stale_applications(self, **kwargs): raise NotImplementedError
     async def jobs_for_user_digest(self, user_id, **kwargs): raise NotImplementedError
+
+    # ── Phase 8 analytics stubs ─────────────────────────────────────────
+    async def list_applications_since(self, user_id, **kwargs): raise NotImplementedError
+    async def tailored_resumes_by_ids(self, user_id, ids): raise NotImplementedError
+    async def digest_log_since(self, user_id, **kwargs): raise NotImplementedError
+    async def count_tailored_resumes_since(self, user_id, **kwargs): raise NotImplementedError

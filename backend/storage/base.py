@@ -308,3 +308,32 @@ class StorageAdapter(ABC):
     ) -> list[dict[str, Any]]:
         """Top N freshly-ingested jobs for a user. Phase 6 picks newest+highest-quality;
         Phase 6.5 will rank by user preferences (saved field/level/locations)."""
+
+    # ── Phase 8: analytics (Pro/Coach gated at endpoint layer) ──────────
+    @abstractmethod
+    async def list_applications_since(
+        self, user_id: str, *, since_iso: str
+    ) -> list[dict[str, Any]]:
+        """All applications for user with created_at >= since_iso. Full rows incl.
+        status_history (already JSON-decoded). Used by analytics aggregations."""
+
+    @abstractmethod
+    async def tailored_resumes_by_ids(
+        self, user_id: str, ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Fetch a set of tailored resumes by id, scoped to user. Returns id,
+        ats_score, source, created_at. Used by /analytics/ats-correlation."""
+
+    @abstractmethod
+    async def digest_log_since(
+        self, user_id: str, *, since_iso: str
+    ) -> list[dict[str, Any]]:
+        """Email digest log rows where sent_at >= since_iso. Returns sent_at,
+        opened_at, clicked_at, job_ids. Used by /analytics/digest."""
+
+    @abstractmethod
+    async def count_tailored_resumes_since(
+        self, user_id: str, *, since_iso: str, source: str | None = None
+    ) -> int:
+        """Count tailored resumes for user, optionally filtered by source
+        ('app' | 'digest'). Powers digest tailor_conversions metric."""

@@ -6,6 +6,10 @@
 import type {
   Application,
   ApplicationStatus,
+  AnalyticsAtsCorrelation,
+  AnalyticsDigest,
+  AnalyticsFunnel,
+  AnalyticsSummary,
   Interview,
   Job,
   JobsPage,
@@ -235,6 +239,16 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // ── Phase 8: Analytics (Pro+ only — 402 for Free) ─────────────────
+  analyticsSummary: (days = 90) =>
+    request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
+  analyticsFunnel: (days = 90) =>
+    request<AnalyticsFunnel>(`/api/analytics/funnel?days=${days}`),
+  analyticsAtsCorrelation: (days = 90) =>
+    request<AnalyticsAtsCorrelation>(`/api/analytics/ats-correlation?days=${days}`),
+  analyticsDigest: (days = 90) =>
+    request<AnalyticsDigest>(`/api/analytics/digest?days=${days}`),
 };
 
 export { ApiError };

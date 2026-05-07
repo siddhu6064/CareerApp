@@ -106,6 +106,7 @@ async def run_tailor(
     user_plan: str,
     job: dict[str, Any],
     master: dict[str, Any],
+    source: str = "app",
 ) -> TailorResult:
     # ── Gate: reset count if monthly window elapsed, then check limit ────
     current_count = await storage.reset_tailor_count_if_due(user_id)
@@ -156,7 +157,7 @@ async def run_tailor(
         "gaps": score["gaps"],
         "keywords_added": keywords_added,
         "pdf_path": pdf_path,
-        "source": "app",
+        "source": source,
         "sonnet_method": meta["method"],
     })
     new_count = await storage.increment_tailor_count(user_id)

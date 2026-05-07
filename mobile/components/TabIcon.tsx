@@ -1,6 +1,6 @@
 import Svg, { Path, Rect, Circle, Polyline, Line } from "react-native-svg";
 
-type Name = "briefcase" | "kanban" | "file" | "sparkles";
+type Name = "briefcase" | "kanban" | "file" | "sparkles" | "chart";
 
 export function TabIcon({ name, color, size = 22 }: { name: Name; color: string; size?: number }) {
   const stroke = color;
@@ -35,6 +35,15 @@ export function TabIcon({ name, color, size = 22 }: { name: Name; color: string;
       return (
         <Svg {...props}>
           <Path d="M12 3l2.5 6L21 11l-6 2.5L12 20l-2.5-6L3 11l6-2.5z" />
+        </Svg>
+      );
+    case "chart":
+      return (
+        <Svg {...props}>
+          <Line x1={3} y1={21} x2={21} y2={21} />
+          <Rect x={5} y={13} width={3} height={6} rx={0.5} />
+          <Rect x={11} y={9} width={3} height={10} rx={0.5} />
+          <Rect x={17} y={5} width={3} height={14} rx={0.5} />
         </Svg>
       );
   }

@@ -1,23 +1,50 @@
 {
   "expo": {
-    "name": "AppName",
+    "name": "[AppName]",
     "slug": "appname",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "appname",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#5B21B6"
+    },
+
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.appname.mobile"
-    },
-    "android": {
-      "package": "com.appname.mobile",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#5B21B6"
+      "bundleIdentifier": "com.appname.app",
+      "buildNumber": "1",
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "[AppName] does not access your camera.",
+        "NSPhotoLibraryUsageDescription": "[AppName] uses your photo library only when you choose to upload a resume."
       }
     },
+
+    "android": {
+      "package": "com.appname.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#5B21B6"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
+    },
+
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -29,11 +56,24 @@
         }
       ]
     ],
+
     "experiments": {
       "typedRoutes": true
     },
+
     "extra": {
-      "apiUrl": "http://127.0.0.1:8000"
+      "apiUrl": "http://127.0.0.1:8000",
+      "eas": {
+        "projectId": "REPLACE_WITH_PROJECT_ID_FROM_eas_init"
+      }
+    },
+
+    "owner": "REPLACE_WITH_EXPO_USERNAME",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_WITH_PROJECT_ID_FROM_eas_init"
     }
   }
 }

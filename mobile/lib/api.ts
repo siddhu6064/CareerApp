@@ -4,6 +4,8 @@
 import Constants from "expo-constants";
 import { getToken } from "./auth";
 import type {
+  AnalyticsDigest,
+  AnalyticsSummary,
   Application,
   ApplicationStatus,
   Interview,
@@ -273,4 +275,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // ── Phase 8: Analytics (Pro+ only) ───────────────────────────────
+  analyticsSummary: (days = 90) =>
+    request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
+  analyticsDigest: (days = 90) =>
+    request<AnalyticsDigest>(`/api/analytics/digest?days=${days}`),
 };

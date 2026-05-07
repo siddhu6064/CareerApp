@@ -802,6 +802,7 @@ from backend.tailor.service import TAILOR_LIMITS, run_tailor
 
 class TailorRequest(StrictBody):
     job_id: str
+    source: str = "app"  # "app" | "digest" — digest deep-links pass ?source=digest
 
 
 class TailorResponse(StrictBody):
@@ -868,6 +869,7 @@ async def tailor_resume_endpoint(
         user_plan=plan,
         job=job,
         master=master,
+        source=body.source if body.source in ("app", "digest") else "app",
     )
 
     pdf_url = await fs.get_signed_url(result.pdf_path or "", ttl_seconds=3600)
@@ -1570,4 +1572,203 @@ async def run_push_notifications(
         follow_up_reminders=follow_up_count,
         stale_alerts=stale_count,
         tokens_disabled=tokens_disabled,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 8 — Analytics Dashboard (Pro+ only)
+# ══════════════════════════════════════════════════════════════════════
+from datetime import datetime, timedelta, timezone
+
+from backend.analytics import (
+    ats_correlation,
+    digest_metrics,
+    funnel_counts,
+    response_rate_by_field,
+    summary_metrics,
+)
+
+
+ANALYTICS_WINDOW_DAYS = 90
+
+
+def _analytics_since_iso(days: int = ANALYTICS_WINDOW_DAYS) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z"
+    )
+
+
+class AnalyticsWindow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    days: int
+    since_iso: str
+    plan: str
+
+
+class SummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    window: AnalyticsWindow
+    total_applications: int
+    applied_count: int
+    responded_count: int
+    interviewed_count: int
+    offered_count: int
+    response_rate: float
+    interview_rate: float
+    offer_rate: float
+    avg_days_to_response: float | None
+    response_sample_size: int
+
+
+class FunnelStage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    status: str
+    count: int
+
+
+class FunnelResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    window: AnalyticsWindow
+    total_applications: int
+    stages: list[FunnelStage]
+    by_field: list[dict[str, Any]]
+
+
+class AtsBucket(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    count: int
+    avg_ats: float | None
+
+
+class AtsPoint(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    application_id: str
+    ats_score: int
+    responded: bool
+    company: str | None = None
+    title: str | None = None
+
+
+class AtsCorrelationResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    window: AnalyticsWindow
+    responded: AtsBucket
+    not_responded: AtsBucket
+    delta: float | None
+    low_data: bool
+    min_per_bucket: int
+    points: list[AtsPoint]
+
+
+class DigestAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    window: AnalyticsWindow
+    sent_count: int
+    opened_count: int
+    clicked_count: int
+    tailor_conversions: int
+    tailor_count_total: int
+    open_rate: float
+    click_rate: float
+    click_through_rate: float
+    conversion_rate: float
+
+
+@app.get("/api/analytics/summary", response_model=SummaryResponse)
+async def analytics_summary(
+    days: int = Query(default=ANALYTICS_WINDOW_DAYS, ge=1, le=365),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> SummaryResponse:
+    """Headline funnel metrics for the last N days. Pro+ only."""
+    plan = await _require_pro_plus(storage, user_id)
+    since = _analytics_since_iso(days)
+    apps = await storage.list_applications_since(user_id, since_iso=since)
+    metrics = summary_metrics(apps)
+    return SummaryResponse(
+        window=AnalyticsWindow(days=days, since_iso=since, plan=plan),
+        **metrics,
+    )
+
+
+@app.get("/api/analytics/funnel", response_model=FunnelResponse)
+async def analytics_funnel(
+    days: int = Query(default=ANALYTICS_WINDOW_DAYS, ge=1, le=365),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> FunnelResponse:
+    """Cumulative funnel + per-field response-rate breakdown."""
+    plan = await _require_pro_plus(storage, user_id)
+    since = _analytics_since_iso(days)
+    apps = await storage.list_applications_since(user_id, since_iso=since)
+
+    # Resolve job_id → field for the by-field breakdown.
+    job_ids = {a["job_id"] for a in apps if a.get("job_id")}
+    field_lookup: dict[str, str] = {}
+    for jid in job_ids:
+        job = await storage.get_job(jid)
+        if job and job.get("field"):
+            field_lookup[jid] = job["field"]
+
+    counts = funnel_counts(apps)
+    by_field = response_rate_by_field(apps, field_lookup)
+
+    return FunnelResponse(
+        window=AnalyticsWindow(days=days, since_iso=since, plan=plan),
+        total_applications=counts["total_applications"],
+        stages=[FunnelStage(**s) for s in counts["stages"]],
+        by_field=by_field,
+    )
+
+
+@app.get("/api/analytics/ats-correlation", response_model=AtsCorrelationResponse)
+async def analytics_ats_correlation(
+    days: int = Query(default=ANALYTICS_WINDOW_DAYS, ge=1, le=365),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> AtsCorrelationResponse:
+    """Avg ATS score for apps that got responses vs those that didn't.
+    The data point that justifies the Pro upgrade — make it land."""
+    plan = await _require_pro_plus(storage, user_id)
+    since = _analytics_since_iso(days)
+    apps = await storage.list_applications_since(user_id, since_iso=since)
+
+    tailored_ids = [a["tailored_resume_id"] for a in apps if a.get("tailored_resume_id")]
+    tailored_rows = await storage.tailored_resumes_by_ids(user_id, tailored_ids)
+    tailored_by_id = {r["id"]: r for r in tailored_rows}
+
+    result = ats_correlation(apps, tailored_by_id)
+    return AtsCorrelationResponse(
+        window=AnalyticsWindow(days=days, since_iso=since, plan=plan),
+        responded=AtsBucket(**result["responded"]),
+        not_responded=AtsBucket(**result["not_responded"]),
+        delta=result["delta"],
+        low_data=result["low_data"],
+        min_per_bucket=result["min_per_bucket"],
+        points=[AtsPoint(**p) for p in result["points"]],
+    )
+
+
+@app.get("/api/analytics/digest", response_model=DigestAnalyticsResponse)
+async def analytics_digest(
+    days: int = Query(default=ANALYTICS_WINDOW_DAYS, ge=1, le=365),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> DigestAnalyticsResponse:
+    """Digest open / click / conversion rates."""
+    plan = await _require_pro_plus(storage, user_id)
+    since = _analytics_since_iso(days)
+    logs = await storage.digest_log_since(user_id, since_iso=since)
+    total = await storage.count_tailored_resumes_since(user_id, since_iso=since)
+    from_digest = await storage.count_tailored_resumes_since(
+        user_id, since_iso=since, source="digest",
+    )
+    metrics = digest_metrics(
+        logs,
+        tailor_count_total=total,
+        tailor_count_from_digest=from_digest,
+    )
+    return DigestAnalyticsResponse(
+        window=AnalyticsWindow(days=days, since_iso=since, plan=plan),
+        **metrics,
     )

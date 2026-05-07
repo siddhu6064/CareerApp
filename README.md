@@ -1,4 +1,4 @@
-# [AppName] — Phases 1–6
+# [AppName] — Phases 1–6 + 8
 
 Multi-tenant SaaS job-search platform with web + mobile clients, Render-ready
 backend, daily digest email, push notifications, and GitHub Actions cron.
@@ -14,21 +14,21 @@ selects storage and auth strategy.
 | 1 — Foundation                  | ✅ done | StorageAdapter pattern, mode-aware config, local-token auth |
 | 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs, JustHireMe quality_gate + tagger, dedup, TTL cache |
 | 3 — Resume + Tracker            | ✅ done | Master resume parser (stub + Sonnet ready), 8-stage tracker, sub-resources |
-| 4a — Web UI                     | ✅ done | Next.js 15, 9 routes, kanban, settings panel |
-| 4b — Mobile                     | ✅ done | Expo SDK 52, Router 4, push registration on auth |
+| 4a — Web UI                     | ✅ done | Next.js 15, 10 routes (incl. /analytics), kanban, settings panel |
+| 4b — Mobile                     | ✅ done | Expo SDK 52, Router 4, 5 tabs (incl. analytics), push registration on auth |
 | 5 — AI Tailor + PDF             | ✅ done | Sonnet structured output, WeasyPrint, Free 3 / Pro 100 / Coach 100 / Desktop ∞ |
 | 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GitHub Actions cron 06:00/06:15/06:30 UTC |
 | 7 — Billing                     | ⏳ next  | LemonSqueezy webhooks |
-| 8 — Cover letters + interview prep | ✅ initial | Pre-existing scaffold passing tests |
+| 8 — Pro features                | ✅ done | Cover letters + interview prep + analytics dashboard. App Store config ready (`mobile/SUBMIT.md`); user runs `eas submit` themselves |
 | 9 — Coach features              | ⏳ later | Multi-client, white-label PDFs |
 | 10 — Desktop variant            | ⏳ later | Tauri shell |
 
 ## Test status
 
-- **88 backend tests passing** (`pytest backend/tests/`)
+- **102 backend tests passing** (`pytest backend/tests/`)
 - Web typecheck + production build clean (Next 15.5.16)
 - Mobile TypeScript clean (Expo SDK 52)
-- 39 backend endpoints
+- 43 backend endpoints (was 39 — +4 analytics)
 
 ## Repo layout
 

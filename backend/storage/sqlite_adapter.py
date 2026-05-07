@@ -1235,3 +1235,82 @@ class SqliteAdapter(StorageAdapter):
         ) as cur:
             rows = await cur.fetchall()
         return [_row_to_job(dict(r)) for r in rows]
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 8 — Analytics
+    # ══════════════════════════════════════════════════════════════════
+    async def list_applications_since(
+        self, user_id: str, *, since_iso: str
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        async with self._db.execute(
+            """
+            SELECT * FROM applications
+            WHERE user_id = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            """,
+            (user_id, since_iso),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_application(dict(r)) for r in rows]
+
+    async def tailored_resumes_by_ids(
+        self, user_id: str, ids: list[str]
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        if not ids:
+            return []
+        # Defensive RLS sim: scope to user_id even with ids.
+        placeholders = ",".join("?" * len(ids))
+        sql = (
+            f"SELECT id, ats_score, source, created_at, job_id "
+            f"FROM tailored_resumes WHERE user_id = ? AND id IN ({placeholders})"
+        )
+        async with self._db.execute(sql, [user_id, *ids]) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def digest_log_since(
+        self, user_id: str, *, since_iso: str
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        import json as _json
+        async with self._db.execute(
+            """
+            SELECT id, sent_at, opened_at, clicked_at, subject, job_ids, resend_id
+            FROM email_digest_log
+            WHERE user_id = ? AND sent_at >= ?
+            ORDER BY sent_at DESC
+            """,
+            (user_id, since_iso),
+        ) as cur:
+            rows = await cur.fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["job_ids"] = _json.loads(d.get("job_ids") or "[]")
+            except Exception:
+                d["job_ids"] = []
+            out.append(d)
+        return out
+
+    async def count_tailored_resumes_since(
+        self, user_id: str, *, since_iso: str, source: str | None = None
+    ) -> int:
+        assert self._db is not None
+        if source is None:
+            sql = (
+                "SELECT COUNT(*) AS n FROM tailored_resumes "
+                "WHERE user_id = ? AND created_at >= ?"
+            )
+            params: tuple[Any, ...] = (user_id, since_iso)
+        else:
+            sql = (
+                "SELECT COUNT(*) AS n FROM tailored_resumes "
+                "WHERE user_id = ? AND created_at >= ? AND source = ?"
+            )
+            params = (user_id, since_iso, source)
+        async with self._db.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0

@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>[AppName] — Build Checklist v5.2 (Phases 1–6 + 8 complete · Phase 7 + App Store submission remain)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+
+:root{
+  --bg:     #F2F5FC;
+  --bg2:    #FFFFFF;
+  --bg3:    #E8EDF8;
+  --bg4:    #F8FAFF;
+  --border: #D8E0F0;
+  --border2:#C4CFE8;
+  --ink:    #0F172A;
+  --ink2:   #334155;
+  --ink3:   #64748B;
+  --ink4:   #94A3B8;
+
+  --brand:  #5B21B6;
+  --brand2: #7C3AED;
+  --brand-bg:#EDE9FE;
+  --brand-bd:#C4B5FD;
+
+  /* tag colours */
+  --t-setup:  #1E40AF; --t-setup-bg:  #DBEAFE; --t-setup-bd:  #BFDBFE;
+  --t-code:   #6D28D9; --t-code-bg:   #EDE9FE; --t-code-bd:   #DDD6FE;
+  --t-ai:     #065F46; --t-ai-bg:     #ECFDF5; --t-ai-bd:     #A7F3D0;
+  --t-db:     #B45309; --t-db-bg:     #FFFBEB; --t-db-bd:     #FDE68A;
+  --t-ui:     #9D174D; --t-ui-bg:     #FDF2F8; --t-ui-bd:     #FBCFE8;
+  --t-infra:  #0E7490; --t-infra-bg:  #ECFEFF; --t-infra-bd:  #A5F3FC;
+  --t-test:   #4338CA; --t-test-bg:   #EEF2FF; --t-test-bd:   #C7D2FE;
+  --t-email:  #0F766E; --t-email-bg:  #F0FDFA; --t-email-bd:  #99F6E4;
+
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Syne',system-ui,sans-serif;
+}
+
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--ink);
+  min-height:100vh;
+}
+
+/* ── HEADER ──────────────────────── */
+.header{
+  background:var(--brand);
+  background:linear-gradient(135deg,#4C1D95 0%,#6D28D9 60%,#7C3AED 100%);
+  border-bottom:1px solid #4C1D95;
+  padding:32px 28px 24px;
+  position:sticky;top:0;z-index:100;
+}
+.header-top{
+  display:flex;align-items:flex-start;
+  justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:18px;
+}
+.header-left .hl-tag{
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:2.5px;text-transform:uppercase;
+  color:rgba(255,255,255,0.6);margin-bottom:6px;
+}
+.header-left h1{
+  font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.3px;
+}
+.header-left h1 em{color:#DDD6FE;font-style:normal;}
+
+/* overall progress */
+.overall{
+  background:rgba(255,255,255,0.15);
+  border:1px solid rgba(255,255,255,0.25);
+  border-radius:10px;padding:12px 18px;text-align:center;min-width:160px;
+}
+.ov-label{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6);margin-bottom:4px;}
+.ov-val{font-size:28px;font-weight:800;color:#fff;font-family:var(--mono);line-height:1;}
+.ov-sub{font-size:10px;color:rgba(255,255,255,0.55);margin-top:3px;font-family:var(--mono);}
+
+/* phase tabs */
+.phase-tabs{display:flex;gap:5px;flex-wrap:wrap;}
+.pt{
+  padding:5px 12px;border-radius:6px;
+  border:1px solid rgba(255,255,255,0.2);
+  background:rgba(255,255,255,0.1);
+  cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:600;
+  color:rgba(255,255,255,0.6);transition:all .15s;white-space:nowrap;
+}
+.pt:hover{background:rgba(255,255,255,0.2);color:#fff;}
+.pt.active{background:#fff;border-color:#fff;color:var(--brand);}
+.pt.done-tab{background:rgba(167,243,208,0.2);border-color:rgba(52,211,153,0.5);color:#6EE7B7;}
+
+/* ── MAIN ────────────────────────── */
+.main{max-width:860px;margin:0 auto;padding:28px 20px 80px;}
+
+/* ── PHASE BLOCK ─────────────────── */
+.phase{display:none;}
+.phase.active{display:block;}
+
+/* phase header */
+.phase-header{
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:18px;flex-wrap:wrap;
+}
+.ph-num{
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:2px;text-transform:uppercase;color:var(--ink3);
+}
+.ph-title{font-size:20px;font-weight:800;color:var(--ink);}
+.ph-badge{
+  padding:3px 10px;border-radius:99px;
+  font-family:var(--mono);font-size:9px;font-weight:700;
+}
+.pb-mvp   {background:var(--brand-bg);color:var(--brand);border:1px solid var(--brand-bd);}
+.pb-ret   {background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;}
+.pb-mon   {background:#FFFBEB;color:#B45309;border:1px solid #FDE68A;}
+.pb-pro   {background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;}
+.pb-scale {background:#FDF2F8;color:#9D174D;border:1px solid #FBCFE8;}
+.pb-desktop{background:#F0FDFA;color:#0F766E;border:1px solid #99F6E4;}
+
+/* progress bar */
+.phase-prog{
+  display:flex;align-items:center;gap:12px;margin-bottom:22px;
+}
+.prog-track{
+  flex:1;height:7px;background:var(--bg3);border-radius:99px;overflow:hidden;
+}
+.prog-fill{
+  height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand),#059669);
+  transition:width .3s ease;
+}
+.prog-label{
+  font-family:var(--mono);font-size:11px;color:var(--ink3);
+  white-space:nowrap;min-width:56px;text-align:right;
+}
+
+/* completion banner */
+.phase-complete{
+  background:#ECFDF5;border:1px solid #6EE7B7;
+  border-radius:8px;padding:12px 16px;margin-bottom:16px;
+  display:none;align-items:center;gap:10px;
+}
+.phase-complete.show{display:flex;}
+.phase-complete span{font-size:13px;color:#065F46;font-weight:600;}
+
+/* ── GROUP ───────────────────────── */
+.group{margin-bottom:20px;}
+.group-title{
+  font-family:var(--mono);font-size:9px;font-weight:700;
+  letter-spacing:2px;text-transform:uppercase;color:var(--ink3);
+  margin-bottom:8px;padding-left:2px;
+}
+
+/* ── TASK ITEM ───────────────────── */
+.task-item{
+  display:flex;align-items:flex-start;gap:12px;
+  background:var(--bg2);border:1.5px solid var(--border);
+  border-radius:9px;padding:12px 14px;margin-bottom:6px;
+  cursor:pointer;transition:all .15s;user-select:none;
+  box-shadow:0 1px 4px rgba(0,0,0,0.04);
+}
+.task-item:hover{
+  border-color:var(--border2);
+  box-shadow:0 2px 10px rgba(0,0,0,0.08);
+  transform:translateX(2px);
+}
+.task-item.checked{
+  background:#F0FDF4;border-color:#86EFAC;
+}
+.task-item.checked .task-label{
+  color:var(--ink3);text-decoration:line-through;
+}
+
+/* checkbox */
+.task-cb{
+  width:20px;height:20px;min-width:20px;border-radius:5px;
+  border:1.5px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  margin-top:1px;transition:all .15s;background:var(--bg3);
+}
+.task-item.checked .task-cb{
+  background:#16A34A;border-color:#16A34A;
+}
+.task-cb svg{display:none;}
+.task-item.checked .task-cb svg{display:block;}
+
+.task-icon{font-size:15px;flex-shrink:0;margin-top:2px;}
+
+/* task body */
+.task-body{flex:1;}
+.task-label{
+  font-size:13px;color:var(--ink);font-weight:600;line-height:1.5;
+  display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap;
+}
+.task-sub{
+  font-size:11px;color:var(--ink3);margin-top:3px;
+  line-height:1.55;font-family:var(--mono);
+}
+
+/* tag */
+.tag{
+  font-family:var(--mono);font-size:9px;font-weight:700;
+  padding:1px 7px;border-radius:4px;
+  letter-spacing:0.5px;text-transform:uppercase;
+  white-space:nowrap;flex-shrink:0;margin-top:1px;
+}
+.tt-setup {background:var(--t-setup-bg);color:var(--t-setup);border:1px solid var(--t-setup-bd);}
+.tt-code  {background:var(--t-code-bg); color:var(--t-code); border:1px solid var(--t-code-bd);}
+.tt-ai    {background:var(--t-ai-bg);   color:var(--t-ai);   border:1px solid var(--t-ai-bd);}
+.tt-db    {background:var(--t-db-bg);   color:var(--t-db);   border:1px solid var(--t-db-bd);}
+.tt-ui    {background:var(--t-ui-bg);   color:var(--t-ui);   border:1px solid var(--t-ui-bd);}
+.tt-infra {background:var(--t-infra-bg);color:var(--t-infra);border:1px solid var(--t-infra-bd);}
+.tt-test  {background:var(--t-test-bg); color:var(--t-test); border:1px solid var(--t-test-bd);}
+.tt-email {background:var(--t-email-bg);color:var(--t-email);border:1px solid var(--t-email-bd);}
+
+/* ── PHASE NAV ───────────────────── */
+.phase-nav{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:28px;padding-top:20px;border-top:1px solid var(--border);
+}
+.nav-btn{
+  background:var(--bg2);border:1.5px solid var(--border);
+  border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;
+  color:var(--ink2);cursor:pointer;font-family:var(--sans);
+  transition:all .15s;
+}
+.nav-btn:hover:not(:disabled){border-color:var(--brand-bd);color:var(--brand);}
+.nav-btn:disabled{opacity:0.3;cursor:default;}
+.nav-btn.primary{
+  background:var(--brand);border-color:var(--brand);color:#fff;
+}
+.nav-btn.primary:hover{background:var(--brand2);}
+.phase-indicator{
+  font-family:var(--mono);font-size:11px;color:var(--ink3);
+}
+
+/* reset */
+.reset-btn{
+  background:transparent;border:1px solid var(--border);
+  border-radius:6px;padding:3px 10px;
+  font-size:10px;color:var(--ink3);cursor:pointer;
+  font-family:var(--mono);transition:all .15s;margin-left:auto;
+}
+.reset-btn:hover{border-color:#EF4444;color:#EF4444;}
+
+@media(max-width:600px){
+  .header,.main{padding-left:14px;padding-right:14px;}
+  .header-left h1{font-size:18px;}
+  .overall{min-width:unset;}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div class="header-left">
+      <div class="hl-tag">[AppName] · Build Checklist · v5.2 (Phases 1–6 ✓)</div>
+      <h1>[App<em>Name</em>] — All Phases</h1>
+    </div>
+    <div class="overall">
+      <div class="ov-label">Overall</div>
+      <div class="ov-val" id="overall-pct">0%</div>
+      <div class="ov-sub" id="overall-sub">0 / 0 tasks</div>
+    </div>
+  </div>
+  <div class="phase-tabs" id="phase-tabs"></div>
+</div>
+
+<div class="main" id="main"></div>
+
+<script>
+const PHASES = [
+  {
+    id:'p1',num:'Phase 01',title:'Foundation',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'📧 Email & Accounts Setup',tasks:[
+        {label:'Create [appname].ops@gmail.com',sub:'Dedicated project email — all services register under this',icon:'📧',tag:'setup'},
+        {label:'Set up Gmail forwarding → central monitoring inbox',sub:'Labels: billing / alerts / user-support / vendor',icon:'🔀',tag:'setup'},
+        {label:'Create GitHub repo: [appname]-app',sub:'Monorepo structure: /backend /web /mobile /docs',icon:'🐙',tag:'setup'},
+        {label:'Register all services under project email',sub:'Vercel, Render, Supabase, Cloudflare, RapidAPI, Anthropic, Resend, LemonSqueezy, Expo EAS',icon:'🔐',tag:'setup'},
+        {label:'Set Anthropic API hard spend limit: $50/month',sub:'Console → Billing → Spend Limits. Do this FIRST before any API call.',icon:'🚨',tag:'setup'},
+        {label:'Set billing alerts on all other services',sub:'Supabase $30 · Render $20 · RapidAPI 5k req/mo · Cloudflare R2 $10 · Resend $25',icon:'💰',tag:'setup'},
+      ]},
+      {title:'🗄️ Supabase Project',tasks:[
+        {label:'Create Supabase project',sub:'Region: US East. Note the project URL + anon key + service role key.',icon:'🗄️',tag:'db'},
+        {label:'Enable Supabase Realtime on applications table',sub:'Dashboard → Database → Replication → enable applications',icon:'⚡',tag:'db'},
+        {label:'Run full schema SQL from PRD §9',sub:'Tables: users, master_resumes, jobs, tailored_resumes, applications, recruiter_contacts, interviews, salary_details, push_notifications, email_digest_log',icon:'📊',tag:'db'},
+        {label:'Enable Row Level Security on all tables',sub:'Each user can only read/write their own rows — enforced at DB level',icon:'🔒',tag:'db'},
+        {label:'Configure Supabase Auth providers',sub:'Enable: Google OAuth, Microsoft OAuth, Email/Password',icon:'🔑',tag:'db'},
+      ]},
+      {title:'📦 Cloudflare R2',tasks:[
+        {label:'Create Cloudflare account under project email',sub:'cloudflare.com → sign up',icon:'☁️',tag:'infra'},
+        {label:'Create R2 bucket: [appname]-resumes',sub:'Stores master + tailored resume PDFs',icon:'🪣',tag:'infra'},
+        {label:'Generate R2 API token (read + write)',sub:'Save to .env as R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY',icon:'🔑',tag:'infra'},
+      ]},
+      {title:'🏗️ Monorepo Scaffold',tasks:[
+        {label:'Init Next.js web app',sub:'npx create-next-app@latest web --typescript --tailwind --app',icon:'⚛️',tag:'code'},
+        {label:'Init FastAPI backend',sub:'/backend: main.py, requirements.txt, Dockerfile, docker-compose.yml',icon:'🐍',tag:'code'},
+        {label:'Init Expo mobile app',sub:'npx create-expo-app@latest mobile --template blank-typescript',icon:'📱',tag:'code'},
+        {label:'Create root .env.example with all required keys',sub:'SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, R2_*, JSEARCH_API_KEY, RESEND_API_KEY, APPNAME_MODE',icon:'🔐',tag:'code'},
+        {label:'Set up docker-compose for local dev',sub:'Services: fastapi (port 8000). Web and mobile run natively.',icon:'🐳',tag:'infra'},
+        {label:'Wire Supabase client in both Next.js and Expo',sub:'npm install @supabase/supabase-js in both /web and /mobile',icon:'🔗',tag:'code'},
+        {label:'Test Supabase Auth end-to-end (Google OAuth)',sub:'Sign in with Google → confirm user row created in Supabase users table',icon:'✅',tag:'test'},
+        {label:'Create EAS project for mobile',sub:'eas init inside /mobile — links to Expo account',icon:'📲',tag:'setup'},
+        {label:'First GitHub push + confirm CI green',sub:'Push to main. Add .github/workflows/checks.yml for lint.',icon:'✅',tag:'infra'},
+      ]},
+      {title:'🧱 Storage Adapter Pattern (enables Phase 10)',tasks:[
+        {label:'Create /backend/storage/ module with abstract StorageAdapter base class',sub:'Define interface: get_user, list_jobs, save_job, get_application, update_status, etc. Every method is async. PRD §14 advisory — required.',icon:'🐍',tag:'code'},
+        {label:'Implement SupabaseAdapter (default for SaaS mode)',sub:'Wraps supabase-py client. Respects RLS via per-request JWT. Used when APPNAME_MODE=saas (default).',icon:'🐍',tag:'code'},
+        {label:'Wire APPNAME_MODE env var to select adapter at startup',sub:'main.py: if os.getenv("APPNAME_MODE","saas")=="desktop": from storage.sqlite_adapter import SqliteAdapter as Storage. SqliteAdapter is a stub at this stage — implemented in Phase 10.',icon:'🐍',tag:'code'},
+        {label:'Refactor any existing endpoints to call storage.get_xxx() — never supabase.* directly',sub:'Keep this rule from day one. Every read/write goes through the adapter.',icon:'🐍',tag:'code'},
+        {label:'Test: switch APPNAME_MODE to a stub adapter and confirm endpoints fail gracefully',sub:'Validates the abstraction is real — not just a wrapper that always falls through to Supabase.',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p2',num:'Phase 02',title:'Job Feed',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'🔌 Job API Integration',tasks:[
+        {label:'Sign up to JSearch on RapidAPI',sub:'rapidapi.com → search "JSearch" → subscribe to free plan',icon:'🔌',tag:'setup'},
+        {label:'Sign up to Adzuna API',sub:'api.adzuna.com → register for free tier (fallback source)',icon:'🔌',tag:'setup'},
+        {label:'Build JSearch fetch function in FastAPI',sub:'GET /search?query={field}+{location}&num_pages=3 → returns job list',icon:'🐍',tag:'code'},
+        {label:'Build Adzuna fetch function in FastAPI',sub:'Fallback — called if JSearch fails or rate-limited',icon:'🐍',tag:'code'},
+      ]},
+      {title:'🔧 Job Processing Pipeline',tasks:[
+        {label:'Build dedup logic: sha256(title+company+posted_date)[:16]',sub:'Check job_hash in Supabase before inserting. Skip if exists.',icon:'🔧',tag:'code'},
+        {label:'Build Claude Haiku tagging function',sub:'Input: job JD → Output JSON: { field, level, tech_stack[], remote_type }',icon:'🤖',tag:'ai'},
+        {label:'Build jobs Supabase insert with dedup',sub:'Upsert on job_hash. Set active=true, expires_at = now() + 30 days.',icon:'💾',tag:'db'},
+        {label:'Build job expiry cleanup function',sub:'Mark active=false where expires_at < now(). Runs in same cron.',icon:'🧹',tag:'code'},
+        {label:'Build in-memory TTL cache for job feed (cachetools)',sub:'Cache GET /api/jobs response for 1 hour. Clears on new fetch.',icon:'⚡',tag:'code'},
+      ]},
+      {title:'📡 API Endpoints',tasks:[
+        {label:'Build GET /api/jobs endpoint',sub:'Params: field, level, remote, date_range, salary_min, ats_min, page. Returns paginated list.',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/jobs/{id} endpoint',sub:'Full job detail including jd_raw text',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/jobs/fields endpoint',sub:'Returns field names + job counts for filter UI badges',icon:'🌐',tag:'code'},
+        {label:'Build POST /internal/jobs/fetch endpoint',sub:'Protected by X-Internal-Secret header. Called by GitHub Actions cron.',icon:'🔒',tag:'code'},
+      ]},
+      {title:'⏰ GitHub Actions Cron',tasks:[
+        {label:'Create .github/workflows/crons.yml',sub:'Three cron jobs: job-fetch (0 6 * * *), digest-send (15 6 * * *), push-notifs (30 6 * * *)',icon:'⏰',tag:'infra'},
+        {label:'Wire job-fetch cron → POST /internal/jobs/fetch',sub:'Add X-Internal-Secret from GitHub repo secret',icon:'⚙️',tag:'infra'},
+        {label:'Add INTERNAL_SECRET to GitHub repo secrets',sub:'Settings → Secrets → Actions → New repo secret',icon:'🔐',tag:'setup'},
+        {label:'Test cron manually via workflow_dispatch',sub:'GitHub → Actions → Run workflow → confirm jobs appear in Supabase',icon:'✅',tag:'test'},
+        {label:'Confirm ~200 jobs in Supabase after first run',sub:'Check jobs table count. Verify field tagging looks correct.',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p3',num:'Phase 03',title:'Resume + API',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'📄 Resume Upload (Path A)',tasks:[
+        {label:'Install pdfplumber and python-docx in FastAPI',sub:'pip install pdfplumber python-docx pymupdf',icon:'📦',tag:'setup'},
+        {label:'Build POST /api/resume/upload endpoint',sub:'Accept multipart PDF or DOCX. Extract raw text. Store file in Cloudflare R2.',icon:'🐍',tag:'code'},
+        {label:'Build Claude Sonnet resume parse function',sub:'Input: raw text → Output JSON: { name, summary, experience[], education[], skills[], certs[] }',icon:'🤖',tag:'ai'},
+        {label:'Store parsed master_resume in Supabase',sub:'One master resume per user. Upsert on user_id.',icon:'💾',tag:'db'},
+        {label:'Handle parse failure gracefully',sub:'If confidence low → return raw text and prompt user to review/edit fields',icon:'⚠️',tag:'code'},
+      ]},
+      {title:'✏️ Resume Builder (Path B)',tasks:[
+        {label:'Build POST /api/resume/build endpoint',sub:'Accept profile form JSON → generate master_resume object → store in Supabase',icon:'🐍',tag:'code'},
+        {label:'Build GET /api/resume/master endpoint',sub:'Returns current master resume structured data for current user',icon:'🌐',tag:'code'},
+        {label:'Build PUT /api/resume/master endpoint',sub:'Update master resume — triggers re-parse or direct JSON edit',icon:'🌐',tag:'code'},
+      ]},
+      {title:'📊 Tracker API',tasks:[
+        {label:'Build POST /api/tracker/applications',sub:'Create application. status defaults to "saved". Triggers Supabase Realtime broadcast.',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/tracker/applications',sub:'All applications for current user. Params: status, starred, platform, date_range.',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/tracker/applications/{id}',sub:'Full detail including interviews, contacts, salary',icon:'🌐',tag:'code'},
+        {label:'Build PATCH /api/tracker/applications/{id}',sub:'Update status, notes, follow_up_date, starred. Auto-appends to status_history[]. Triggers Realtime.',icon:'🌐',tag:'code'},
+        {label:'Build DELETE /api/tracker/applications/{id}',sub:'Soft delete — sets active=false. Does not remove from DB.',icon:'🌐',tag:'code'},
+        {label:'Build POST /api/tracker/applications/{id}/interviews',sub:'Add interview round. Stores in interviews table.',icon:'🌐',tag:'code'},
+        {label:'Build PUT /api/tracker/applications/{id}/contact',sub:'Upsert recruiter_contacts row for this application',icon:'🌐',tag:'code'},
+        {label:'Build PUT /api/tracker/applications/{id}/salary',sub:'Upsert salary_details row for this application',icon:'🌐',tag:'code'},
+        {label:'Confirm Supabase Realtime fires on PATCH',sub:'Test: update status → confirm change event received on subscriber',icon:'✅',tag:'test'},
+      ]},
+      {title:'👤 User & Auth',tasks:[
+        {label:'Build GET /api/me endpoint',sub:'Returns user profile, plan, tailor_count_this_month, digest settings',icon:'🌐',tag:'code'},
+        {label:'Build PUT /api/me/preferences endpoint',sub:'Update fields[], levels[], remote_pref, locations[], salary_min',icon:'🌐',tag:'code'},
+        {label:'Build PUT /api/me/digest endpoint',sub:'Update email_digest_enabled, frequency, remote_only, salary_min',icon:'🌐',tag:'email'},
+        {label:'Build middleware: verify Supabase JWT on all protected routes',sub:'Extract user_id from JWT. Attach to request context.',icon:'🔒',tag:'code'},
+      ]},
+    ]
+  },
+  {
+    id:'p4a',num:'Phase 04a',title:'Web UI',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'🔐 Auth & Onboarding',tasks:[
+        {label:'Build sign-up / sign-in page',sub:'Google OAuth + Microsoft OAuth + Email/Password. Supabase Auth UI or custom.',icon:'🔐',tag:'ui'},
+        {label:'Build onboarding flow (3 steps)',sub:'Step 1: Add resume. Step 2: Set preferences (fields, level, remote, location). Step 3: Feed.',icon:'🎯',tag:'ui'},
+        {label:'Protect all app routes with auth middleware',sub:'Redirect to /login if no session. Store session in Supabase client.',icon:'🔒',tag:'code'},
+      ]},
+      {title:'📋 Resume Upload/Builder UI',tasks:[
+        {label:'Build resume upload component',sub:'Drag-and-drop PDF/DOCX. Show upload progress. Display parsed fields on success.',icon:'📤',tag:'ui'},
+        {label:'Build editable parsed resume form',sub:'User reviews and corrects Claude-parsed fields. Inline edit per section.',icon:'✏️',tag:'ui'},
+        {label:'Build profile builder form',sub:'Multi-step: Personal Info → Experience → Education → Skills → Summary (AI-suggested)',icon:'✏️',tag:'ui'},
+      ]},
+      {title:'🔍 Job Feed',tasks:[
+        {label:'Build job feed page with filter sidebar',sub:'Filters: field, level, remote, date posted, salary min. URL-driven state.',icon:'🔍',tag:'ui'},
+        {label:'Build job card component',sub:'Company logo, role title, field badge, level badge, remote tag, salary range, date, ATS % badge',icon:'🃏',tag:'ui'},
+        {label:'Build grade badge component (A/B/C/D/F)',sub:'Colour coded: A=green, B=blue, C=amber, D=orange, F=gray',icon:'🏅',tag:'ui'},
+        {label:'Build job detail page (SSR — Next.js)',sub:'Route: /jobs/[id]. SSR renders full JD. Includes Tailor button. SEO meta tags.',icon:'📄',tag:'ui'},
+        {label:'Wire ATS score calculation to feed',sub:'On feed load, call FastAPI to compute Haiku scores for visible jobs vs master resume.',icon:'🔗',tag:'code'},
+      ]},
+      {title:'📊 Tracker Kanban',tasks:[
+        {label:'Build tracker kanban page',sub:'8 columns: Saved, Applied, Phone Screen, Interview, Final Round, Offer, Rejected, Ghosted',icon:'📊',tag:'ui'},
+        {label:'Build application card component',sub:'Company logo, role, grade badge, ATS %, days since applied, status badge',icon:'🃏',tag:'ui'},
+        {label:'Build application detail side panel / modal',sub:'All fields: resume snapshot, recruiter contact, interview log, salary, notes, timeline',icon:'📋',tag:'ui'},
+        {label:'Build drag-and-drop between kanban columns',sub:'On drop → PATCH /api/tracker/applications/{id} with new status',icon:'🤌',tag:'ui'},
+        {label:'Wire Supabase Realtime subscription on web',sub:'On postgres_changes UPDATE → update Zustand store → re-render card in correct column',icon:'⚡',tag:'code'},
+        {label:'Build add-application modal',sub:'Triggered from job card "Track" button or manually. Pre-fills job details.',icon:'➕',tag:'ui'},
+      ]},
+      {title:'⚙️ Settings',tasks:[
+        {label:'Build account settings page',sub:'Edit name, avatar, preferences (fields, level, remote, location)',icon:'⚙️',tag:'ui'},
+        {label:'Build digest preferences section in settings',sub:'Toggle enabled, frequency (daily/weekdays), remote-only filter. Live preview of top 5 jobs.',icon:'📧',tag:'email'},
+        {label:'Build Zustand global store',sub:'Slices: auth, jobs feed, tracker pipeline, user preferences, digest settings',icon:'🏪',tag:'code'},
+      ]},
+    ]
+  },
+  {
+    id:'p4b',num:'Phase 04b',title:'Mobile App',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'📱 Navigation & Auth',tasks:[
+        {label:'Set up Expo Router navigation structure',sub:'(auth) stack: login screen. (app) tabs: Feed, Tracker, Profile.',icon:'🗺️',tag:'code'},
+        {label:'Build mobile sign-in screen',sub:'Google OAuth + Microsoft OAuth + Email. Supabase Auth + expo-web-browser.',icon:'🔐',tag:'ui'},
+        {label:'Handle deep links (universal links)',sub:'Email digest CTAs open app to /jobs/[id]. Configure in app.json.',icon:'🔗',tag:'code'},
+      ]},
+      {title:'📋 Mobile Tracker (Primary)',tasks:[
+        {label:'Build tracker home screen — kanban scroll',sub:'Horizontal scroll columns or vertical grouped by status. Cards show company, role, status, days.',icon:'📊',tag:'ui'},
+        {label:'Build swipe gestures on application cards',sub:'Swipe right → advance stage. Swipe left → mark rejected/ghosted. Long press → edit.',icon:'👆',tag:'ui'},
+        {label:'Build application detail screen',sub:'Tabs: Details, Interviews, Contacts, Salary, Notes',icon:'📋',tag:'ui'},
+        {label:'Build add interview round screen',sub:'Date picker, type selector, interviewer names, notes field',icon:'📅',tag:'ui'},
+        {label:'Build recruiter contact screen',sub:'Name, email, LinkedIn. One-tap to call/email.',icon:'👤',tag:'ui'},
+      ]},
+      {title:'🔍 Mobile Feed',tasks:[
+        {label:'Build job feed tab — scrollable cards',sub:'Same data as web. Field filter chips. ATS % shown if Pro.',icon:'🔍',tag:'ui'},
+        {label:'Build bookmark job action',sub:'Saves job to Saved stage in tracker. Bookmarked for web tailoring.',icon:'🔖',tag:'ui'},
+      ]},
+      {title:'📴 Offline & Sync',tasks:[
+        {label:'Install and configure MMKV',sub:'npm install react-native-mmkv. Store all tracker data locally.',icon:'💾',tag:'code'},
+        {label:'Build offline-first tracker reads',sub:'Load from MMKV first. Fetch from API in background. Merge on response.',icon:'📴',tag:'code'},
+        {label:'Build pending sync queue',sub:'Track offline edits in MMKV with pending flag. Flush to API on reconnect.',icon:'🔄',tag:'code'},
+        {label:'Wire Supabase Realtime on mobile',sub:'Same subscription as web. On UPDATE → update MMKV + re-render screen.',icon:'⚡',tag:'code'},
+        {label:'Test cross-platform sync',sub:'Update status on mobile → confirm web updates within 1 second. And vice versa.',icon:'✅',tag:'test'},
+      ]},
+      {title:'🔔 Push Token Setup',tasks:[
+        {label:'Install expo-notifications',sub:'npx expo install expo-notifications expo-device expo-constants',icon:'📦',tag:'setup'},
+        {label:'Request push permission on first launch',sub:'Ask after onboarding completion. Store Expo push token.',icon:'🔔',tag:'code'},
+        {label:'Register push token via POST /api/me/push-token',sub:'Saves expo_push_token to users table in Supabase',icon:'📡',tag:'code'},
+      ]},
+    ]
+  },
+  {
+    id:'p5',num:'Phase 05',title:'AI Tailor + PDF',badge:'MVP',badgeClass:'pb-mvp',
+    groups:[
+      {title:'🤖 Claude Sonnet Tailoring',tasks:[
+        {label:'Build resume tailor function (Claude Sonnet)',sub:'Input: master_resume JSON + JD text → Output: tailored JSON + keywords_injected[] + ats_score + gaps[]',icon:'🤖',tag:'ai'},
+        {label:'Write system prompt with hard constraints',sub:'Never fabricate. Never change dates/titles/numbers. Only tailor language. Max 3 bullets per role.',icon:'📝',tag:'ai'},
+        {label:'Build ATS keyword extraction function',sub:'Claude Haiku: JD → top 15 ATS keywords + phrases',icon:'🤖',tag:'ai'},
+        {label:'Build ATS score computation',sub:'String match: keyword overlap % between tailored resume and JD.',icon:'🔢',tag:'code'},
+      ]},
+      {title:'📄 PDF Generation',tasks:[
+        {label:'Install WeasyPrint in FastAPI Docker image',sub:'pip install weasyprint. Add Dockerfile dependencies: libcairo2, libpango.',icon:'📦',tag:'setup'},
+        {label:'Build ATS-optimised HTML resume template',sub:'Clean single-column layout. No tables. No columns. Safe fonts. Passes Workday/Taleo ATS.',icon:'🎨',tag:'ui'},
+        {label:'Build WeasyPrint PDF generation function',sub:'Input: tailored_content JSON → render HTML → WeasyPrint → PDF bytes',icon:'🐍',tag:'code'},
+        {label:'Upload PDF to Cloudflare R2',sub:'Path: resumes/{user_id}/{job_id}/tailored.pdf. Return signed URL (1hr expiry).',icon:'☁️',tag:'infra'},
+        {label:'Store tailored_resume row in Supabase',sub:'Linked to user_id, job_id, master_resume_id. Store pdf_url, ats_score, gaps, keywords.',icon:'💾',tag:'db'},
+      ]},
+      {title:'🌐 Tailor API & Usage Gate',tasks:[
+        {label:'Build POST /api/resume/tailor/{job_id}',sub:'Check usage gate → call Claude → generate PDF → store → return tailored JSON + pdf_url',icon:'🌐',tag:'code'},
+        {label:'Build usage gate logic',sub:'Free: tailor_count_this_month ≤ 3. Pro: pass through (soft cap 100). Increment counter on success.',icon:'🔒',tag:'code'},
+        {label:'Build monthly counter reset (1st of month)',sub:'Supabase scheduled function or GitHub Actions: reset tailor_count_this_month = 0',icon:'🔄',tag:'code'},
+        {label:'Build GET /api/resume/tailored endpoint',sub:'List all tailored resumes for current user with job details',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/resume/tailored/{id}/download',sub:'Generate fresh signed R2 URL (1hr expiry) for PDF download',icon:'🌐',tag:'code'},
+      ]},
+      {title:'👁️ Tailor UI (Web + Mobile)',tasks:[
+        {label:'Build tailor flow UI on web',sub:'Loading state → before/after diff view → ATS score + gaps → Download button',icon:'🎨',tag:'ui'},
+        {label:'Install react-pdf for browser preview',sub:'npm install @react-pdf/renderer. Render tailored JSON as live PDF preview.',icon:'📦',tag:'setup'},
+        {label:'Build before/after diff view',sub:'Side-by-side: original bullet vs tailored bullet. Changed sections highlighted.',icon:'↔️',tag:'ui'},
+        {label:'Build upgrade modal for free users at limit',sub:'Appears when tailor_count = 3. Clear value prop. Links to billing.',icon:'💳',tag:'ui'},
+        {label:'Build view tailored resume on mobile',sub:'PDF viewer screen. Download + share options. Works offline via MMKV cache.',icon:'📱',tag:'ui'},
+        {label:'End-to-end tailor test',sub:'Upload resume → browse feed → tailor a job → download PDF → confirm ATS score makes sense',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p6',num:'Phase 06',title:'Notifications + Digest',badge:'Retention',badgeClass:'pb-ret',
+    groups:[
+      {title:'📧 Email Digest — Resend Setup',tasks:[
+        {label:'Configure Resend with custom domain',sub:'Add DNS records for digest@[appname].io. Verify domain in Resend dashboard.',icon:'📧',tag:'setup'},
+        {label:'Set up SPF, DKIM, DMARC records',sub:'Critical for deliverability. Resend provides the DNS values to add.',icon:'🛡️',tag:'setup'},
+        {label:'Build digest job selection query',sub:'Top 5 jobs for user: filter by prefs → rank by ATS match % → exclude jobs already in tracker',icon:'🔍',tag:'code'},
+        {label:'Build ATS pre-score for digest',sub:'Compute Haiku ATS score for top 10 candidates → rank → pick top 5',icon:'🤖',tag:'ai'},
+        {label:'Build digest HTML email template',sub:'Responsive HTML. Header with subject personalisation. 5 job cards. Plan-gated ATS %. Unsubscribe footer.',icon:'🎨',tag:'email'},
+        {label:'Build per-user email rendering function',sub:'Inject: user name, field, region, 5 jobs, ATS scores (if Pro), deep links per job',icon:'🐍',tag:'code'},
+        {label:'Build POST /internal/digest/send endpoint',sub:'Loop all users where email_digest_enabled=true. Build + send per user. Log to email_digest_log.',icon:'🌐',tag:'code'},
+        {label:'Build POST /api/digest/unsubscribe/{token}',sub:'No auth required. Token from email footer. Sets email_digest_enabled=false immediately.',icon:'🔒',tag:'email'},
+        {label:'Build POST /api/webhooks/resend',sub:'Handle open, click, bounce events → update email_digest_log.opened_at / clicked_at / status',icon:'🌐',tag:'email'},
+        {label:'Wire digest cron in GitHub Actions YAML',sub:'Add send-digest job at 15 6 * * * (needs: fetch-jobs)',icon:'⏰',tag:'infra'},
+        {label:'Build GET /api/digest/preview',sub:'Returns the 5 jobs that would be in today\'s digest for current user. Used in settings preview.',icon:'🌐',tag:'email'},
+        {label:'Test digest end-to-end',sub:'Trigger manually → confirm email received → check open tracking → click CTA → confirm deep link',icon:'✅',tag:'test'},
+      ]},
+      {title:'🔔 Push Notifications',tasks:[
+        {label:'Build interview reminder logic',sub:'Query interviews where date is tomorrow or in 1 hour. Build notification payload.',icon:'📅',tag:'code'},
+        {label:'Build follow-up reminder logic',sub:'Query applications where follow_up_date = today AND follow_up_notified = false',icon:'📬',tag:'code'},
+        {label:'Build stale application nudge',sub:'Query applied applications where updated_at < 14 days ago and status = applied',icon:'👻',tag:'code'},
+        {label:'Build Expo Push send function',sub:'Batch send to expo_push_token via Expo Push API. Handle invalid tokens gracefully.',icon:'📡',tag:'code'},
+        {label:'Build POST /internal/notifications/send',sub:'Runs all three notification types. Wire to GitHub Actions cron at 30 6 * * *.',icon:'🌐',tag:'code'},
+        {label:'Build deep link handling for notifications',sub:'Notification tap → open app → navigate to correct application card',icon:'🔗',tag:'code'},
+        {label:'Test push notification delivery (iOS + Android)',sub:'Add interview → confirm reminder arrives at correct time on device',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p7',num:'Phase 07',title:'Billing',badge:'Monetize',badgeClass:'pb-mon',
+    groups:[
+      {title:'💳 LemonSqueezy Setup',tasks:[
+        {label:'Create LemonSqueezy account under project email',sub:'app.lemonsqueezy.com → sign up → complete merchant onboarding',icon:'🍋',tag:'setup'},
+        {label:'Create Pro product + monthly subscription ($19/mo)',sub:'Products → New product → Subscription → $19/month',icon:'💰',tag:'setup'},
+        {label:'Create Coach product + monthly subscription ($49/mo)',sub:'Same flow. Separate product.',icon:'💰',tag:'setup'},
+        {label:'Get LemonSqueezy API key and store in .env',sub:'Settings → API → New key → LEMONSQUEEZY_API_KEY',icon:'🔑',tag:'setup'},
+        {label:'Set up webhook endpoint in LemonSqueezy dashboard',sub:'Point to POST /api/webhooks/lemonsqueezy. Enable: subscription_created, updated, cancelled',icon:'🔗',tag:'setup'},
+      ]},
+      {title:'🌐 Billing API',tasks:[
+        {label:'Build POST /api/billing/checkout',sub:'Create LemonSqueezy checkout URL for Pro or Coach. Return URL to client.',icon:'🌐',tag:'code'},
+        {label:'Build POST /api/billing/portal',sub:'Open LemonSqueezy customer portal for manage/cancel',icon:'🌐',tag:'code'},
+        {label:'Build POST /api/webhooks/lemonsqueezy',sub:'subscription_created → plan=pro/coach. subscription_cancelled → plan=free. Update subscriptions table.',icon:'🌐',tag:'code'},
+        {label:'Verify webhook signature (HMAC)',sub:'Validate X-Signature header on every webhook. Reject invalid.',icon:'🔒',tag:'code'},
+      ]},
+      {title:'🔒 Feature Gating',tasks:[
+        {label:'Gate: tailor limit (Free ≤ 3/mo, Pro 100/mo)',sub:'Verify plan check reads from Supabase users.plan field',icon:'🔒',tag:'code'},
+        {label:'Gate: tracker limit (Free ≤ 10 active apps)',sub:'Count active applications on POST. Return 403 if Free and > 10.',icon:'🔒',tag:'code'},
+        {label:'Gate: digest ATS % (Pro only)',sub:'In digest build function: if user.plan != pro → omit ATS score, show upgrade prompt instead',icon:'🔒',tag:'email'},
+        {label:'Gate: analytics dashboard (Pro only)',sub:'Return 403 on analytics endpoints if plan = free',icon:'🔒',tag:'code'},
+        {label:'Gate: ATS feed filter (Pro only)',sub:'ats_min param in GET /api/jobs ignored if plan = free',icon:'🔒',tag:'code'},
+      ]},
+      {title:'💳 Billing UI',tasks:[
+        {label:'Build upgrade modal (triggered at limits)',sub:'Shows when free user hits tailor limit, tracker limit, or tries Pro features.',icon:'🎨',tag:'ui'},
+        {label:'Build pricing page / upgrade page',sub:'Three tiers: Free / Pro $19 / Coach $49. Feature comparison. CTA buttons.',icon:'🎨',tag:'ui'},
+        {label:'Build billing settings section',sub:'Current plan, renewal date, manage/cancel link → LemonSqueezy portal',icon:'⚙️',tag:'ui'},
+        {label:'Add plan badge to nav/header',sub:'Show "Free" or "Pro" badge in app navigation. Taps to upgrade page.',icon:'🏅',tag:'ui'},
+        {label:'Build in-app upgrade screen on mobile',sub:'Sheet modal showing Pro features. "Upgrade" button → opens checkout in browser.',icon:'📱',tag:'ui'},
+        {label:'Test full billing flow end-to-end',sub:'Complete checkout → confirm plan updated in Supabase via webhook → confirm gates unlock',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p8',num:'Phase 08',title:'Pro Features',badge:'Pro',badgeClass:'pb-pro',
+    groups:[
+      {title:'📝 Cover Letter Generator',tasks:[
+        {label:'Build cover letter generation function',sub:'Claude Sonnet: tailored resume JSON + JD + company name → 3-paragraph cover letter',icon:'🤖',tag:'ai'},
+        {label:'Build POST /api/resume/cover-letter/{job_id}',sub:'Pro-gated. Returns cover letter text + PDF download URL',icon:'🌐',tag:'code'},
+        {label:'Build cover letter UI on tailor result page',sub:'"Generate Cover Letter" button (Pro only). Shows letter + download.',icon:'🎨',tag:'ui'},
+      ]},
+      {title:'🎯 Interview Prep',tasks:[
+        {label:'Build interview prep generation function',sub:'Claude Sonnet: JD + user experience → 5 questions + answer frameworks using their own resume',icon:'🤖',tag:'ai'},
+        {label:'Cache prep questions per job_id in Supabase',sub:'Store in interviews table. Reuse if already generated for this job.',icon:'💾',tag:'db'},
+        {label:'Build interview prep UI on web (tailor result page)',sub:'5 questions accordion. Answer framework references user\'s own experience.',icon:'🎨',tag:'ui'},
+        {label:'Build interview prep screen on mobile (offline)',sub:'Accessible from application card → Interview tab. Cached in MMKV for offline use.',icon:'📱',tag:'ui'},
+      ]},
+      {title:'📊 Analytics Dashboard',tasks:[
+        {label:'Build analytics summary query',sub:'Total applied, response rate, interview rate, offer rate, avg days to response',icon:'📊',tag:'code'},
+        {label:'Build GET /api/analytics/summary',sub:'Pro-gated. Rolling 90-day window.',icon:'🌐',tag:'code'},
+        {label:'Build application funnel query',sub:'Count per stage: applied → screen → interview → final → offer',icon:'📊',tag:'code'},
+        {label:'Build ATS-correlation analytics',sub:'Avg ATS score for apps that got responses vs those that didn\'t',icon:'📊',tag:'code'},
+        {label:'Build GET /api/analytics/digest',sub:'Digest open rate, click rate, tailor conversions. Uses email_digest_log table.',icon:'🌐',tag:'email'},
+        {label:'Build analytics dashboard UI on web',sub:'Summary metrics cards. Funnel chart. ATS correlation chart. Response rate by field.',icon:'🎨',tag:'ui'},
+      ]},
+      {title:'🚀 App Store Submission',tasks:[
+        {label:'Create Apple Developer account ($99/yr)',sub:'developer.apple.com → enroll under project email',icon:'🍎',tag:'setup'},
+        {label:'Create Google Play Console account ($25 one-time)',sub:'play.google.com/console → sign up under project email',icon:'🤖',tag:'setup'},
+        {label:'Configure app.json: bundle ID, version, icons, splash',sub:'com.[appname].app · version 1.0.0 · 1024×1024 icon · splash screen',icon:'⚙️',tag:'setup'},
+        {label:'Build EAS production build (iOS + Android)',sub:'eas build --platform all --profile production',icon:'🏗️',tag:'infra'},
+        {label:'Submit to App Store via EAS Submit',sub:'eas submit --platform ios. Add metadata, screenshots, description.',icon:'🍎',tag:'infra'},
+        {label:'Submit to Google Play via EAS Submit',sub:'eas submit --platform android. Internal testing first → production.',icon:'🤖',tag:'infra'},
+      ]},
+    ]
+  },
+  {
+    id:'p9',num:'Phase 09',title:'Coach Tier',badge:'Scale',badgeClass:'pb-scale',
+    groups:[
+      {title:'👨‍🏫 Coach Backend',tasks:[
+        {label:'Design coach → client relationship schema',sub:'New table: coach_clients { coach_id, client_id, created_at }.',icon:'📊',tag:'db'},
+        {label:'Build POST /api/coach/clients',sub:'Coach invites client by email. Creates coach_clients row + sends invite via Resend.',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/coach/clients',sub:'Returns all clients with tracker summary (applied count, response rate, latest status)',icon:'🌐',tag:'code'},
+        {label:'Build GET /api/coach/clients/{id}/tracker',sub:'Coach reads client\'s full tracker pipeline (read-only)',icon:'🌐',tag:'code'},
+        {label:'Build POST /api/coach/clients/{id}/tailor/{job_id}',sub:'Bulk tailor on behalf of client. Uses client\'s master resume.',icon:'🌐',tag:'code'},
+        {label:'Build white-label PDF export',sub:'PDF generation accepts optional coach branding (logo, colours). Injected into HTML template.',icon:'🎨',tag:'code'},
+      ]},
+      {title:'👨‍🏫 Coach Dashboard UI',tasks:[
+        {label:'Build coach dashboard home page',sub:'Client list with status summary cards. Quick actions: tailor, view tracker.',icon:'🎨',tag:'ui'},
+        {label:'Build client tracker view (read-only for coach)',sub:'Same kanban as user tracker. Coach sees all stages but cannot edit client data.',icon:'🎨',tag:'ui'},
+        {label:'Build bulk tailor interface',sub:'Select multiple clients + one job → tailor for all. Progress indicator per client.',icon:'🎨',tag:'ui'},
+        {label:'Build client progress report page',sub:'Per-client analytics: applications, response rate, funnel, salary offers.',icon:'🎨',tag:'ui'},
+        {label:'Build white-label branding settings',sub:'Coach uploads logo. Sets brand color. Preview of branded PDF.',icon:'🎨',tag:'ui'},
+        {label:'Gate Coach tier features behind $49/mo plan',sub:'All coach routes return 403 if user.plan != coach',icon:'🔒',tag:'code'},
+        {label:'Test full coach flow end-to-end',sub:'Sign up as coach → invite client → client accepts → tailor job → download white-label PDF',icon:'✅',tag:'test'},
+      ]},
+    ]
+  },
+  {
+    id:'p10',num:'Phase 10',title:'Desktop Variant (Optional)',badge:'Desktop',badgeClass:'pb-desktop',
+    groups:[
+      {title:'⛔ Pre-conditions (do NOT start until met)',tasks:[
+        {label:'SaaS MVP validated — at least 10 real users completed full loop',sub:'See PRD §10 (MVP Spec) — sign up, tailor, download, apply, log. Don\'t build desktop before this.',icon:'⛔',tag:'setup'},
+        {label:'At least 3 paying Pro subscribers active for 30+ days',sub:'Validates that the SaaS itself is wanted before forking effort to a free desktop variant.',icon:'⛔',tag:'setup'},
+        {label:'Storage adapter pattern from Phase 1 is in place and tested',sub:'Every backend endpoint goes through StorageAdapter. SupabaseAdapter is the only impl so far. SqliteAdapter is the deliverable of Phase 10.1.',icon:'⛔',tag:'setup'},
+        {label:'Decide pricing — recommend FREE / BYOK',sub:'License keys cannot be enforced offline. Free desktop + paid SaaS is the honest split. Document this decision.',icon:'⛔',tag:'setup'},
+      ]},
+      {title:'💾 10.1 — SQLite Storage Adapter',tasks:[
+        {label:'Create SqliteAdapter class implementing StorageAdapter interface',sub:'/backend/storage/sqlite_adapter.py. Same async interface as SupabaseAdapter — different underlying calls (sqlite3 / SQLModel).',icon:'🐍',tag:'code'},
+        {label:'Translate Supabase schema (PRD §9) to SQLite DDL',sub:'/backend/storage/sqlite_schema.sql. All tables: users, master_resumes, jobs, tailored_resumes, applications, recruiter_contacts, interviews, salary_details, push_notifications (no-op locally), email_digest_log (no-op locally).',icon:'📊',tag:'db'},
+        {label:'Implement first-launch migration runner',sub:'On startup if APPNAME_MODE=desktop: ensure ~/.appname/data.db exists, run schema.sql idempotently. Use a schema_version table for future migrations.',icon:'🐍',tag:'code'},
+        {label:'Drop RLS-related logic in SqliteAdapter (single-user mode)',sub:'No tenant filtering needed. Every row implicitly belongs to the local user. Simplifies queries vs SupabaseAdapter.',icon:'🐍',tag:'code'},
+        {label:'Test SqliteAdapter against same test suite as SupabaseAdapter',sub:'Both adapters must pass identical contract tests. Add /backend/tests/storage/ with shared test cases.',icon:'✅',tag:'test'},
+      ]},
+      {title:'🔐 10.2 — Local Auth Path',tasks:[
+        {label:'Add local-token auth path in FastAPI middleware',sub:'When APPNAME_MODE=desktop: skip Supabase JWT verify, accept Bearer = ${APPNAME_LOCAL_TOKEN}. Token regenerated each launch (matches JustHireMe pattern).',icon:'🔐',tag:'code'},
+        {label:'Generate per-launch API token in main.py startup',sub:'_API_TOKEN = secrets.token_hex(32). Logged once to stdout for Tauri to capture and pass to frontend.',icon:'🐍',tag:'code'},
+        {label:'Tauri command to read token from sidecar stdout and inject into web view',sub:'Frontend reads from window.__APPNAME_TOKEN__ injected by Tauri at boot. Same Bearer flow as SaaS — endpoint code unchanged.',icon:'🦀',tag:'code'},
+        {label:'Confirm CORS allows tauri://localhost origin only',sub:'Lock down origin regex per JustHireMe: ^(tauri://localhost|https?://(localhost|127\\.0\\.0\\.1|tauri\\.localhost)(?::\\d+)?)$',icon:'🔐',tag:'code'},
+      ]},
+      {title:'🔌 10.3 — User-Provided API Keys',tasks:[
+        {label:'Build Settings UI for user Anthropic API key',sub:'In /web: when APPNAME_MODE=desktop, show "API Keys" tab in Settings. Input + Save + Test button. PRD §11 monetization gating disabled in desktop.',icon:'🎨',tag:'ui'},
+        {label:'Store keys in OS keychain via Tauri secure storage plugin',sub:'@tauri-apps/plugin-stronghold or platform-native Keychain/Credential Manager. Never write keys to plain settings file.',icon:'🦀',tag:'code'},
+        {label:'Replace os.environ["ANTHROPIC_API_KEY"] with get_anthropic_client() helper',sub:'/backend/llm.py: in desktop mode, read key from settings table. Falls back to env var for dev.',icon:'🐍',tag:'code'},
+        {label:'Build Settings UI for user GitHub token (optional)',sub:'Used by github_ingestor. Optional in desktop mode.',icon:'🎨',tag:'ui'},
+        {label:'Add "Validate keys" action that pings Anthropic + GitHub',sub:'Confirms keys work before user runs tailor / fetch. Surfaces errors clearly.',icon:'✅',tag:'test'},
+      ]},
+      {title:'📡 10.4 — Source Adapters (replace JSearch)',tasks:[
+        {label:'Port free_scout.py from /backend/agents/justhireme/ to /backend/agents/sources/',sub:'Refactor _scrape_* functions to RETURN normalized leads instead of calling save_lead. MIT attribution preserved.',icon:'🐍',tag:'code'},
+        {label:'Wire Greenhouse adapter to job fetch pipeline (desktop mode)',sub:'companies configurable via Settings → Sources tab. Default list: openai, anthropic, stripe, etc.',icon:'🐍',tag:'code'},
+        {label:'Wire Lever / Ashby / Workable adapters',sub:'Same pattern — slug-per-company config in Settings.',icon:'🐍',tag:'code'},
+        {label:'Skip JSearch + Adzuna calls when APPNAME_MODE=desktop',sub:'Conditional in fetch orchestrator. SaaS keeps JSearch as primary; desktop never calls it.',icon:'🐍',tag:'code'},
+        {label:'Run quality_gate + scoring_engine on locally-fetched leads',sub:'Same code path as SaaS. Confirms PRD §16 ports work in both modes.',icon:'✅',tag:'test'},
+      ]},
+      {title:'🦀 10.5 — Tauri 2 Shell',tasks:[
+        {label:'Init Tauri 2 project under /desktop',sub:'cargo install tauri-cli. cd /desktop && cargo tauri init. Reference vasu-devs/justhireme src-tauri/ for working config.',icon:'🦀',tag:'setup'},
+        {label:'Configure Next.js web app for static export',sub:'/web: next.config.js → output: "export". Drops SSR-only routes (job detail SEO pages — desktop doesn\'t need SEO).',icon:'⚛️',tag:'code'},
+        {label:'Configure Tauri to load from /web/out static bundle',sub:'tauri.conf.json → frontendDist: "../web/out". Build pipeline: npm run build (web) → cargo tauri build (desktop).',icon:'🦀',tag:'code'},
+        {label:'Configure FastAPI as Tauri sidecar',sub:'tauri.conf.json → bundle.externalBin includes the PyInstaller-built backend. Tauri spawns it on launch.',icon:'🦀',tag:'code'},
+        {label:'PyInstaller build for FastAPI backend',sub:'pip install pyinstaller. Build single-file executable with backend.spec (mirror JustHireMe\'s approach).',icon:'🐍',tag:'infra'},
+        {label:'Implement port discovery: backend writes free port to stdout, Tauri captures',sub:'Avoids port conflicts. Frontend reads port + token from Tauri window globals.',icon:'🦀',tag:'code'},
+        {label:'Add system tray icon + minimize-to-tray',sub:'Standard desktop UX. tauri-plugin-tray.',icon:'🦀',tag:'ui'},
+      ]},
+      {title:'⏰ 10.6 — Local Cron (APScheduler)',tasks:[
+        {label:'Add APScheduler init guarded by APPNAME_MODE=desktop',sub:'main.py startup: if mode==desktop: scheduler.add_job(fetch_jobs_local, "cron", hour=6); scheduler.start(). Never runs in SaaS.',icon:'🐍',tag:'code'},
+        {label:'Schedule daily local job fetch at 6am local time',sub:'Uses user\'s timezone — different from SaaS\'s 6am UTC. tzlocal package.',icon:'🐍',tag:'code'},
+        {label:'Add "Fetch jobs now" manual button in UI for desktop',sub:'Power users want manual control. Triggers fetch_jobs_local() immediately.',icon:'🎨',tag:'ui'},
+        {label:'Skip GitHub Actions cron entirely in desktop builds',sub:'No /internal/* endpoints exposed in desktop binary. Confirm via integration test.',icon:'✅',tag:'test'},
+      ]},
+      {title:'🔏 10.7 — Code Signing & Distribution',tasks:[
+        {label:'Enroll in Apple Developer Program ($99/yr)',sub:'Required for macOS notarization. Use [appname].ops@gmail.com per PRD §13 cross-project SOP.',icon:'💳',tag:'setup'},
+        {label:'Configure Tauri macOS signing + notarization',sub:'Set APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD env vars in CI. Tauri handles notarization automatically.',icon:'🍎',tag:'infra'},
+        {label:'Acquire Windows EV code signing cert (~$300/yr)',sub:'Sectigo or DigiCert. Avoids SmartScreen warnings. Yubikey-based for security.',icon:'💳',tag:'setup'},
+        {label:'Configure Windows signing in Tauri build',sub:'WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD env vars. Test on clean Windows 11 VM.',icon:'🪟',tag:'infra'},
+        {label:'Configure Linux AppImage build',sub:'tauri.conf.json bundle.targets includes "appimage". No signing required for Linux.',icon:'🐧',tag:'infra'},
+        {label:'Test installers on Windows 11, macOS 14+, Ubuntu 22.04',sub:'Fresh VM for each. Confirm install → launch → no security warnings → app works end-to-end.',icon:'✅',tag:'test'},
+      ]},
+      {title:'🚀 10.8 — Auto-Updater & Release Pipeline',tasks:[
+        {label:'Configure tauri-plugin-updater',sub:'Generates ed25519 signing keypair. Public key embedded in binary; private key in GitHub Secrets.',icon:'🦀',tag:'code'},
+        {label:'Host update manifest at https://desktop.[appname].io/updates.json',sub:'Static JSON on Vercel — free. Lists latest version + signed download URLs per platform.',icon:'☁️',tag:'infra'},
+        {label:'GitHub Actions workflow: tagged release → build all 3 platforms → sign → publish',sub:'.github/workflows/desktop-release.yml. Triggers on tag v0.*. Publishes to GitHub Releases + updates manifest.',icon:'🤖',tag:'infra'},
+        {label:'Test update flow: install v0.1.0 → publish v0.1.1 → confirm in-app update works',sub:'End-to-end test of updater. Verify signature check fails on tampered binary.',icon:'✅',tag:'test'},
+      ]},
+      {title:'📦 10.9 — Public Release',tasks:[
+        {label:'Tag v0.1.0 and publish to GitHub Releases',sub:'Repo: [appname]/desktop (or monorepo /desktop subdir). Release notes link to setup guide.',icon:'📦',tag:'infra'},
+        {label:'Add /desktop section to landing page with download buttons',sub:'Detect OS, show right .exe / .dmg / AppImage. Clear "BYOK — bring your own Anthropic key" copy.',icon:'🎨',tag:'ui'},
+        {label:'Bundle LICENSE-justhireme in distribution',sub:'MIT compliance. /desktop/LICENSES/ directory in installer. Show in About dialog.',icon:'📜',tag:'infra'},
+        {label:'Build About dialog with attribution credits',sub:'List JustHireMe (vasu-devs) + career-ops + ai-resume-analyzer per PRD §16.',icon:'🎨',tag:'ui'},
+        {label:'Write /desktop/README.md — setup, BYOK, source config, troubleshooting',sub:'Clear path from download → first tailor. Cover key acquisition + cost expectations.',icon:'📝',tag:'code'},
+        {label:'Document local job source configuration in app + README',sub:'How to add Greenhouse companies, edit Lever slugs, etc. Examples included.',icon:'📝',tag:'code'},
+      ]},
+      {title:'✅ 10.10 — Final Validation',tasks:[
+        {label:'Test full loop end-to-end on each OS',sub:'Install → onboard → user keys → import resume → fetch jobs → tailor → save PDF → tracker. Every step works on Windows / macOS / Linux.',icon:'✅',tag:'test'},
+        {label:'Test data persistence across app restarts',sub:'Create application, close app, reopen. Data still there. ~/.appname/data.db survives.',icon:'✅',tag:'test'},
+        {label:'Test offline operation (no internet)',sub:'Tracker works fully. Tailor surfaces clear "no internet" error. No crash.',icon:'✅',tag:'test'},
+        {label:'Test LinkedIn ZIP import + GitHub profile import',sub:'Both Pro-only features in SaaS — free in desktop. Confirm both work locally.',icon:'✅',tag:'test'},
+        {label:'Verify SaaS unaffected — same /backend code still serves SaaS correctly',sub:'Run full SaaS test suite with APPNAME_MODE=saas. No regressions from adapter pattern.',icon:'✅',tag:'test'},
+        {label:'Add "Phase 10 complete" line to ROADMAP and changelog',sub:'Public announcement post. Cross-promote desktop ↔ SaaS without cannibalizing.',icon:'📝',tag:'code'},
+      ]},
+    ]
+  },
+];
+
+// ── Storage ───────────────────────────────
+const KEY = 'appname_checklist_v5_light';
+let checked = {};
+try{checked=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(checked));}catch(e){}}
+
+
+// ── Pre-completed defaults (auto-injected from build state) ──
+const PRE_COMPLETED = ["p1::Create GitHub repo: [appname]-app", "p1::Init Next.js web app", "p1::Init FastAPI backend", "p1::Init Expo mobile app", "p1::Create root .env.example with all required keys", "p1::First GitHub push + confirm CI green", "p1::Create /backend/storage/ module with abstract StorageAdapter base class", "p1::Wire APPNAME_MODE env var to select adapter at startup", "p1::Refactor any existing endpoints to call storage.get_xxx() \u2014 never supabase.* directly", "p1::Test: switch APPNAME_MODE to a stub adapter and confirm endpoints fail gracefully", "p2::Build JSearch fetch function in FastAPI", "p2::Build Adzuna fetch function in FastAPI", "p2::Build dedup logic: sha256(title+company+posted_date)[:16]", "p2::Build Claude Haiku tagging function", "p2::Build jobs Supabase insert with dedup", "p2::Build job expiry cleanup function", "p2::Build in-memory TTL cache for job feed (cachetools)", "p2::Build GET /api/jobs endpoint", "p2::Build GET /api/jobs/{id} endpoint", "p2::Build GET /api/jobs/fields endpoint", "p2::Build POST /internal/jobs/fetch endpoint", "p2::Create .github/workflows/crons.yml", "p2::Wire job-fetch cron \u2192 POST /internal/jobs/fetch", "p3::Build POST /api/resume/upload endpoint", "p3::Build Claude Sonnet resume parse function", "p3::Store parsed master_resume in Supabase", "p3::Handle parse failure gracefully", "p3::Build POST /api/resume/build endpoint", "p3::Build GET /api/resume/master endpoint", "p3::Build PUT /api/resume/master endpoint", "p3::Build POST /api/tracker/applications", "p3::Build GET /api/tracker/applications", "p3::Build GET /api/tracker/applications/{id}", "p3::Build PATCH /api/tracker/applications/{id}", "p3::Build DELETE /api/tracker/applications/{id}", "p3::Build POST /api/tracker/applications/{id}/interviews", "p3::Build PUT /api/tracker/applications/{id}/contact", "p3::Build PUT /api/tracker/applications/{id}/salary", "p3::Build GET /api/me endpoint", "p3::Build PUT /api/me/digest endpoint", "p4a::Protect all app routes with auth middleware", "p4a::Build resume upload component", "p4a::Build editable parsed resume form", "p4a::Build job feed page with filter sidebar", "p4a::Build job card component", "p4a::Build job detail page (SSR \u2014 Next.js)", "p4a::Build tracker kanban page", "p4a::Build application card component", "p4a::Build application detail side panel / modal", "p4a::Build drag-and-drop between kanban columns", "p4a::Build digest preferences section in settings", "p4a::Build Zustand global store", "p4b::Set up Expo Router navigation structure", "p4b::Build application detail screen", "p4b::Build add interview round screen", "p4b::Build job feed tab \u2014 scrollable cards", "p4b::Build bookmark job action", "p4b::Install expo-notifications", "p4b::Request push permission on first launch", "p4b::Register push token via POST /api/me/push-token", "p5::Build resume tailor function (Claude Sonnet)", "p5::Write system prompt with hard constraints", "p5::Build ATS keyword extraction function", "p5::Build ATS score computation", "p5::Install WeasyPrint in FastAPI Docker image", "p5::Build ATS-optimised HTML resume template", "p5::Build WeasyPrint PDF generation function", "p5::Store tailored_resume row in Supabase", "p5::Build POST /api/resume/tailor/{job_id}", "p5::Build usage gate logic", "p5::Build monthly counter reset (1st of month)", "p5::Build GET /api/resume/tailored endpoint", "p5::Build GET /api/resume/tailored/{id}/download", "p5::Build tailor flow UI on web", "p5::Build view tailored resume on mobile", "p5::End-to-end tailor test", "p6::Build digest job selection query", "p6::Build digest HTML email template", "p6::Build per-user email rendering function", "p6::Build POST /internal/digest/send endpoint", "p6::Wire digest cron in GitHub Actions YAML", "p6::Test digest end-to-end", "p6::Build interview reminder logic", "p6::Build follow-up reminder logic", "p6::Build stale application nudge", "p6::Build Expo Push send function", "p6::Build POST /internal/notifications/send", "p8::Build cover letter generation function", "p8::Build POST /api/resume/cover-letter/{job_id}", "p8::Build interview prep generation function", "p8::Cache prep questions per job_id in Supabase", "p10::Create SqliteAdapter class implementing StorageAdapter interface", "p10::Translate Supabase schema (PRD \u00a79) to SQLite DDL", "p10::Implement first-launch migration runner", "p10::Drop RLS-related logic in SqliteAdapter (single-user mode)", "p10::Test SqliteAdapter against same test suite as SupabaseAdapter", "p10::Add local-token auth path in FastAPI middleware", "p10::Generate per-launch API token in main.py startup", "p8::Build analytics summary query", "p8::Build GET /api/analytics/summary", "p8::Build application funnel query", "p8::Build ATS-correlation analytics", "p8::Build GET /api/analytics/digest", "p8::Build analytics dashboard UI on web", "p8::Configure app.json: bundle ID, version, icons, splash"];
+const SYNC_KEY = 'appname_checklist_v5_2_sync';
+const lastSync = localStorage.getItem(SYNC_KEY);
+const CURRENT_SYNC_VERSION = '6';  // bump when COMPLETED changes
+if (Object.keys(checked).length === 0 || lastSync !== CURRENT_SYNC_VERSION) {
+  // First load OR new sync version — seed completed tasks
+  PRE_COMPLETED.forEach(k => { checked[k] = true; });
+  localStorage.setItem(SYNC_KEY, CURRENT_SYNC_VERSION);
+  save();
+}
+
+// ── Build UI ──────────────────────────────
+const tabsEl = document.getElementById('phase-tabs');
+const mainEl = document.getElementById('main');
+
+PHASES.forEach((phase,pi)=>{
+  // Tab
+  const tab = document.createElement('button');
+  tab.className = 'pt'+(pi===0?' active':'');
+  tab.textContent = phase.num;
+  tab.dataset.phase = phase.id;
+  tab.addEventListener('click',()=>switchPhase(phase.id));
+  tabsEl.appendChild(tab);
+
+  // Phase block
+  const block = document.createElement('div');
+  block.className = 'phase'+(pi===0?' active':'');
+  block.id = 'phase-'+phase.id;
+
+  // completion banner
+  const banner = document.createElement('div');
+  banner.className = 'phase-complete';
+  banner.id = 'banner-'+phase.id;
+  banner.innerHTML = '<span>🎉 Phase complete! Move to the next phase.</span>';
+  block.appendChild(banner);
+
+  // header
+  const hdr = document.createElement('div');
+  hdr.className = 'phase-header';
+  hdr.innerHTML = `
+    <span class="ph-num">${phase.num}</span>
+    <span class="ph-title">${phase.title}</span>
+    <span class="ph-badge ${phase.badgeClass}">${phase.badge}</span>
+    <button class="reset-btn" onclick="resetPhase('${phase.id}')">Reset</button>`;
+  block.appendChild(hdr);
+
+  // progress bar
+  const prog = document.createElement('div');
+  prog.className = 'phase-prog';
+  prog.innerHTML = `<div class="prog-track"><div class="prog-fill" id="fill-${phase.id}" style="width:0%"></div></div><div class="prog-label" id="plabel-${phase.id}">0 / 0</div>`;
+  block.appendChild(prog);
+
+  // groups + tasks
+  phase.groups.forEach(group=>{
+    const g = document.createElement('div');
+    g.className = 'group';
+    g.innerHTML = `<div class="group-title">${group.title}</div>`;
+    group.tasks.forEach(task=>{
+      const key = phase.id+'::'+task.label;
+      const item = document.createElement('div');
+      item.className = 'task-item'+(checked[key]?' checked':'');
+      item.dataset.key = key;
+      item.innerHTML = `
+        <div class="task-cb">
+          <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+            <path d="M1 4L4 7L10 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="task-icon">${task.icon}</div>
+        <div class="task-body">
+          <div class="task-label">
+            ${task.label}
+            <span class="tag tt-${task.tag}">${task.tag}</span>
+          </div>
+          ${task.sub?`<div class="task-sub">${task.sub}</div>`:''}
+        </div>`;
+      item.addEventListener('click',()=>toggleTask(key,item,phase.id));
+      g.appendChild(item);
+    });
+    block.appendChild(g);
+  });
+
+  // nav
+  const nav = document.createElement('div');
+  nav.className = 'phase-nav';
+  nav.innerHTML = `
+    <button class="nav-btn" onclick="goPhase(${pi-1})" ${pi===0?'disabled':''}>← ${pi>0?PHASES[pi-1].title:'—'}</button>
+    <span class="phase-indicator">${pi+1} / ${PHASES.length}</span>
+    <button class="nav-btn primary" onclick="goPhase(${pi+1})" ${pi===PHASES.length-1?'disabled':''}>
+      ${pi<PHASES.length-1?PHASES[pi+1].title+' →':'—'}
+    </button>`;
+  block.appendChild(nav);
+  mainEl.appendChild(block);
+});
+
+// ── Logic ─────────────────────────────────
+function getAllKeys(phaseId){
+  const p = PHASES.find(x=>x.id===phaseId);
+  return p.groups.flatMap(g=>g.tasks.map(t=>phaseId+'::'+t.label));
+}
+
+function updatePhaseProgress(phaseId){
+  const keys = getAllKeys(phaseId);
+  const done = keys.filter(k=>checked[k]).length;
+  const pct = keys.length?Math.round(done/keys.length*100):0;
+  const fill = document.getElementById('fill-'+phaseId);
+  const label = document.getElementById('plabel-'+phaseId);
+  if(fill) fill.style.width = pct+'%';
+  if(label) label.textContent = done+' / '+keys.length;
+  const banner = document.getElementById('banner-'+phaseId);
+  if(banner) banner.classList.toggle('show', pct===100);
+  const tab = document.querySelector(`[data-phase="${phaseId}"]`);
+  if(tab) tab.classList.toggle('done-tab', pct===100);
+  updateOverall();
+}
+
+function updateOverall(){
+  const allKeys = PHASES.flatMap(p=>getAllKeys(p.id));
+  const done = allKeys.filter(k=>checked[k]).length;
+  const pct = allKeys.length?Math.round(done/allKeys.length*100):0;
+  document.getElementById('overall-pct').textContent = pct+'%';
+  document.getElementById('overall-sub').textContent = done+' / '+allKeys.length+' tasks';
+}
+
+function toggleTask(key,el,phaseId){
+  checked[key] = !checked[key];
+  el.classList.toggle('checked',checked[key]);
+  save();
+  updatePhaseProgress(phaseId);
+}
+
+function resetPhase(phaseId){
+  if(!confirm('Reset all tasks in this phase?')) return;
+  getAllKeys(phaseId).forEach(k=>{checked[k]=false;});
+  document.querySelectorAll('.task-item').forEach(el=>{
+    if(el.dataset.key&&el.dataset.key.startsWith(phaseId+'::'))
+      el.classList.remove('checked');
+  });
+  save();
+  updatePhaseProgress(phaseId);
+}
+
+function switchPhase(id){
+  document.querySelectorAll('.phase').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.pt').forEach(t=>t.classList.remove('active'));
+  document.getElementById('phase-'+id)?.classList.add('active');
+  document.querySelector(`[data-phase="${id}"]`)?.classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function goPhase(idx){
+  if(idx<0||idx>=PHASES.length) return;
+  switchPhase(PHASES[idx].id);
+}
+
+PHASES.forEach(p=>updatePhaseProgress(p.id));
+</script>
+</body>
+</html>

@@ -254,3 +254,276 @@ async def test_unauth_blocked(storage):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             r = await ac.post("/api/cover-letter", json={"job_id": "x"})
     assert r.status_code == 401
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Analytics dashboard (Pro+ only)
+# ══════════════════════════════════════════════════════════════════════
+async def _create_app(client, *, title="Backend Engineer", company="Acme",
+                      job_id=None, status_chain=("saved",)):
+    """Create an application then walk it through a status chain."""
+    payload = {"title": title, "company": company, "status": status_chain[0]}
+    if job_id:
+        payload["job_id"] = job_id
+    r = await client.post("/api/applications", json=payload)
+    assert r.status_code == 201, r.text
+    aid = r.json()["id"]
+    for s in status_chain[1:]:
+        r = await client.patch(f"/api/applications/{aid}", json={"status": s})
+        assert r.status_code == 200, r.text
+    return aid
+
+
+async def test_summary_empty(primed_client):
+    r = await primed_client.get("/api/analytics/summary")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total_applications"] == 0
+    assert body["applied_count"] == 0
+    assert body["response_rate"] == 0.0
+    assert body["avg_days_to_response"] is None
+    assert body["window"]["days"] == 90
+    assert body["window"]["plan"] == "pro"
+
+
+async def test_summary_counts_responses_and_offers(primed_client):
+    # 4 apps:
+    #   1 stuck at saved  → not applied
+    #   1 applied, no response
+    #   1 applied → phone_screen → onsite (interview, no offer)
+    #   1 applied → phone_screen → onsite → offer → accepted
+    await _create_app(primed_client, status_chain=("saved",))
+    await _create_app(primed_client, status_chain=("saved", "applied"))
+    await _create_app(
+        primed_client,
+        status_chain=("saved", "applied", "phone_screen", "onsite"),
+    )
+    await _create_app(
+        primed_client,
+        status_chain=("saved", "applied", "phone_screen", "onsite", "offer", "accepted"),
+    )
+
+    r = await primed_client.get("/api/analytics/summary")
+    body = r.json()
+    assert body["total_applications"] == 4
+    assert body["applied_count"] == 3
+    assert body["responded_count"] == 2
+    assert body["interviewed_count"] == 2
+    assert body["offered_count"] == 1
+    # 2 of 3 applied responded
+    assert abs(body["response_rate"] - 2 / 3) < 1e-3
+    # 1 of 3 applied got an offer
+    assert abs(body["offer_rate"] - 1 / 3) < 1e-3
+
+
+async def test_funnel_cumulative_counts(primed_client):
+    await _create_app(primed_client, status_chain=("saved", "applied", "phone_screen"))
+    await _create_app(
+        primed_client,
+        status_chain=("saved", "applied", "phone_screen", "technical", "onsite", "offer"),
+    )
+    await _create_app(primed_client, status_chain=("saved", "applied", "rejected"))
+
+    r = await primed_client.get("/api/analytics/funnel")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total_applications"] == 3
+
+    by_status = {s["status"]: s["count"] for s in body["stages"]}
+    assert by_status["saved"] == 3
+    assert by_status["applied"] == 3
+    assert by_status["phone_screen"] == 2
+    assert by_status["technical"] == 1
+    assert by_status["onsite"] == 1
+    assert by_status["offer"] == 1
+    assert by_status["accepted"] == 0
+    assert by_status["rejected"] == 1
+
+
+async def test_funnel_by_field_breakdown(primed_client):
+    # Applications attached to real jobs so by_field can resolve field
+    r = await primed_client.get("/api/jobs?page_size=4")
+    jobs = r.json()["items"]
+    assert len(jobs) >= 2
+
+    for j in jobs[:2]:
+        await _create_app(
+            primed_client, job_id=j["id"], company=j["company"],
+            status_chain=("saved", "applied", "phone_screen"),
+        )
+    for j in jobs[2:4]:
+        await _create_app(
+            primed_client, job_id=j["id"], company=j["company"],
+            status_chain=("saved", "applied"),
+        )
+
+    r = await primed_client.get("/api/analytics/funnel")
+    body = r.json()
+    # by_field is populated and rates are sane (0..1)
+    assert isinstance(body["by_field"], list)
+    for row in body["by_field"]:
+        assert 0.0 <= row["response_rate"] <= 1.0
+        assert row["responded"] <= row["applied"]
+
+
+async def test_ats_correlation_low_data_flag(primed_client):
+    # Tailor + apply to 2 jobs only — under min_per_bucket (3) so low_data=True
+    r = await primed_client.get("/api/jobs?page_size=2")
+    jobs = r.json()["items"]
+    for j in jobs:
+        tr = await primed_client.post("/api/resume/tailor", json={"job_id": j["id"]})
+        tid = tr.json()["id"]
+        r = await primed_client.post("/api/applications", json={
+            "title": j["title"], "company": j["company"],
+            "job_id": j["id"], "status": "saved",
+        })
+        aid = r.json()["id"]
+        # Link tailored + advance to applied
+        await primed_client.patch(
+            f"/api/applications/{aid}",
+            json={"tailored_resume_id": tid, "status": "applied"},
+        )
+
+    r = await primed_client.get("/api/analytics/ats-correlation")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["low_data"] is True
+    assert body["delta"] is None
+    # Points still emitted so UI can render the scatter
+    assert len(body["points"]) == 2
+
+
+async def test_ats_correlation_full_data(primed_client):
+    # Build 8 apps: 4 with responses + tailored, 4 without responses + tailored
+    r = await primed_client.get("/api/jobs?page_size=8")
+    jobs = r.json()["items"]
+    assert len(jobs) >= 8
+
+    for i, j in enumerate(jobs[:8]):
+        tr = await primed_client.post("/api/resume/tailor", json={"job_id": j["id"]})
+        tid = tr.json()["id"]
+        r = await primed_client.post("/api/applications", json={
+            "title": j["title"], "company": j["company"],
+            "job_id": j["id"], "status": "saved",
+        })
+        aid = r.json()["id"]
+        await primed_client.patch(
+            f"/api/applications/{aid}",
+            json={"tailored_resume_id": tid, "status": "applied"},
+        )
+        if i < 4:
+            await primed_client.patch(
+                f"/api/applications/{aid}", json={"status": "phone_screen"},
+            )
+
+    r = await primed_client.get("/api/analytics/ats-correlation")
+    body = r.json()
+    assert body["low_data"] is False
+    assert body["responded"]["count"] == 4
+    assert body["not_responded"]["count"] == 4
+    assert body["delta"] is not None
+    assert body["responded"]["avg_ats"] is not None
+
+
+async def test_digest_metrics_empty(primed_client):
+    r = await primed_client.get("/api/analytics/digest")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sent_count"] == 0
+    assert body["open_rate"] == 0.0
+    assert body["tailor_conversions"] == 0
+
+
+async def test_digest_metrics_with_logs(primed_client, storage):
+    # Seed digest log directly
+    await storage.log_email_digest(
+        "local", subject="Today's jobs", job_ids=["j1", "j2"], resend_id="r1",
+    )
+    # Manually mark one row opened+clicked to test rates
+    from backend.storage import get_storage
+    s = get_storage()
+    assert s._db is not None  # type: ignore[attr-defined]
+    await s._db.execute(  # type: ignore[attr-defined]
+        "UPDATE email_digest_log SET opened_at = '2025-01-01T00:00:00.000Z', "
+        "clicked_at = '2025-01-01T00:01:00.000Z' WHERE user_id = 'local'"
+    )
+    await s._db.commit()  # type: ignore[attr-defined]
+
+    r = await primed_client.get("/api/analytics/digest")
+    body = r.json()
+    assert body["sent_count"] == 1
+    assert body["opened_count"] == 1
+    assert body["clicked_count"] == 1
+    assert body["open_rate"] == 1.0
+    assert body["click_rate"] == 1.0
+
+
+async def test_digest_source_flag_increments_conversions(primed_client):
+    r = await primed_client.get("/api/jobs?page_size=2")
+    jobs = r.json()["items"]
+    # One tailor from app, one from digest
+    await primed_client.post("/api/resume/tailor", json={"job_id": jobs[0]["id"]})
+    await primed_client.post(
+        "/api/resume/tailor",
+        json={"job_id": jobs[1]["id"], "source": "digest"},
+    )
+
+    r = await primed_client.get("/api/analytics/digest")
+    body = r.json()
+    assert body["tailor_count_total"] == 2
+    assert body["tailor_conversions"] == 1
+
+
+async def test_window_days_param_filters(primed_client):
+    await _create_app(primed_client, status_chain=("saved", "applied"))
+    # Default 90-day window picks it up
+    r = await primed_client.get("/api/analytics/summary")
+    assert r.json()["applied_count"] == 1
+    # 1-day window also picks up — app created seconds ago
+    r = await primed_client.get("/api/analytics/summary?days=1")
+    assert r.json()["applied_count"] == 1
+    # Out-of-range rejected
+    r = await primed_client.get("/api/analytics/summary?days=0")
+    assert r.status_code == 422
+    r = await primed_client.get("/api/analytics/summary?days=400")
+    assert r.status_code == 422
+
+
+# ── Pro+ gate (the data point that justifies the upgrade) ────────────
+async def test_free_tier_blocked_from_all_analytics(primed_client, storage):
+    await storage.upsert_user("local", "local@desktop", plan="free")
+    for path in (
+        "/api/analytics/summary",
+        "/api/analytics/funnel",
+        "/api/analytics/ats-correlation",
+        "/api/analytics/digest",
+    ):
+        r = await primed_client.get(path)
+        assert r.status_code == 402, f"{path} → {r.status_code}: {r.text}"
+        assert "Pro" in r.json()["detail"]
+
+
+async def test_coach_plan_allowed_on_analytics(primed_client, storage):
+    await storage.upsert_user("local", "local@desktop", plan="coach")
+    for path in (
+        "/api/analytics/summary",
+        "/api/analytics/funnel",
+        "/api/analytics/ats-correlation",
+        "/api/analytics/digest",
+    ):
+        r = await primed_client.get(path)
+        assert r.status_code == 200, f"{path} → {r.status_code}"
+
+
+async def test_desktop_plan_allowed_on_analytics(primed_client, storage):
+    await storage.upsert_user("local", "local@desktop", plan="desktop")
+    r = await primed_client.get("/api/analytics/summary")
+    assert r.status_code == 200
+
+
+async def test_analytics_unauth_blocked(storage):
+    from backend.main import app
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.get("/api/analytics/summary")
+    assert r.status_code == 401

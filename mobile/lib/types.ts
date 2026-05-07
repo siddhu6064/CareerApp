@@ -173,3 +173,37 @@ export interface TailorQuota {
   tailor_count_month: number;
   tailor_limit: number;
 }
+
+// ── Phase 8: Analytics ────────────────────────────────────────────────
+export interface AnalyticsWindow {
+  days: number;
+  since_iso: string;
+  plan: string;
+}
+
+export interface AnalyticsSummary {
+  window: AnalyticsWindow;
+  total_applications: number;
+  applied_count: number;
+  responded_count: number;
+  interviewed_count: number;
+  offered_count: number;
+  response_rate: number;
+  interview_rate: number;
+  offer_rate: number;
+  avg_days_to_response: number | null;
+  response_sample_size: number;
+}
+
+export interface AnalyticsDigest {
+  window: AnalyticsWindow;
+  sent_count: number;
+  opened_count: number;
+  clicked_count: number;
+  tailor_conversions: number;
+  tailor_count_total: number;
+  open_rate: number;
+  click_rate: number;
+  click_through_rate: number;
+  conversion_rate: number;
+}
