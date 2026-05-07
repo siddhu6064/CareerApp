@@ -1,0 +1,53 @@
+name: Deploy backend → Render
+
+# Auto-deploy the FastAPI backend to Render whenever main is updated.
+# Only triggers on changes to backend code or config — skips on docs-only pushes.
+#
+# Required GitHub repo secret:
+#   RENDER_DEPLOY_HOOK_URL  — from Render dashboard → Service → Settings → Deploy Hook
+#                             Format: https://api.render.com/deploy/srv-xxx?key=yyy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "supabase/schema.sql"
+      - "docker-compose.yml"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:    # allow manual trigger at any time
+
+jobs:
+  deploy:
+    name: Trigger Render deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "⚠️  RENDER_DEPLOY_HOOK_URL secret not set — skipping deploy."
+            echo "Add it under Settings → Secrets → Actions in the GitHub repo."
+            exit 0
+          fi
+
+          echo "Triggering Render deploy..."
+          RESPONSE=$(curl -fsSL -X POST "$RENDER_DEPLOY_HOOK_URL" \
+            -H "Accept: application/json" \
+            -w "\n%{http_code}" 2>&1)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response: $BODY"
+          echo "HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "❌ Deploy hook failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Deploy triggered. Check https://dashboard.render.com for status."

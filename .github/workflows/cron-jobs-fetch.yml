@@ -4,26 +4,47 @@ name: cron · jobs fetch
 on:
   schedule:
     - cron: "0 6 * * *"
-  workflow_dispatch:        # allow manual runs
+  workflow_dispatch:
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: POST /internal/jobs/fetch
         env:
-          API_URL: ${{ secrets.API_URL }}                     # https://appname-api.onrender.com
-          INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}     # matches Render env
+          API_URL: ${{ secrets.API_URL }}
+          INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
         run: |
           set -euo pipefail
-          curl -fsSL -X POST "$API_URL/internal/jobs/fetch" \
+          echo "Fetching jobs at $(date -u)"
+
+          RESPONSE=$(curl -fsSL -X POST "$API_URL/internal/jobs/fetch" \
             -H "Content-Type: application/json" \
             -H "X-Internal-Secret: $INTERNAL_SECRET" \
-            -d '{"queries": [
-                  "software engineer", "frontend engineer", "backend engineer",
-                  "full stack engineer", "ml engineer", "data engineer", "data scientist",
-                  "product designer", "ux designer", "product manager",
-                  "devops engineer", "platform engineer"
-                ]}' \
-            --retry 3 --retry-delay 30 --max-time 180 \
-            -w "\nHTTP %{http_code}\n"
+            -d '{
+                  "queries": [
+                    "software engineer", "frontend engineer", "backend engineer",
+                    "full stack engineer", "ml engineer", "data engineer",
+                    "data scientist", "product designer", "ux designer",
+                    "product manager", "devops engineer", "platform engineer"
+                  ]
+                }' \
+            --retry 3 --retry-delay 30 --max-time 180)
+
+          echo "Response: $RESPONSE"
+
+          # Fail if the backend reported any errors in the response body
+          FAILED=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              print(d.get('failed', 0))
+          except Exception:
+              print(0)
+          ")
+          echo "Failed jobs: $FAILED"
+          if [ "$FAILED" -gt 10 ]; then
+            echo "❌ Too many fetch failures ($FAILED)" && exit 1
+          fi
+          echo "✅ Done"

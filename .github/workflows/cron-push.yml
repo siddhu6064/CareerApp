@@ -1,7 +1,7 @@
 name: cron · push notifications
 
 # 06:30 UTC daily — interview reminders, follow-up reminders, stale alerts.
-# Runs after the digest email so we don't double-notify users in the same minute.
+# Runs after the digest so we don't double-notify in the same minute.
 on:
   schedule:
     - cron: "30 6 * * *"
@@ -10,6 +10,7 @@ on:
 jobs:
   send-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: POST /internal/push/run
         env:
@@ -17,9 +18,27 @@ jobs:
           INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
         run: |
           set -euo pipefail
-          curl -fsSL -X POST "$API_URL/internal/push/run" \
+          echo "Running push notifications at $(date -u)"
+
+          RESPONSE=$(curl -fsSL -X POST "$API_URL/internal/push/run" \
             -H "Content-Type: application/json" \
             -H "X-Internal-Secret: $INTERNAL_SECRET" \
             -d '{}' \
-            --retry 3 --retry-delay 30 --max-time 300 \
-            -w "\nHTTP %{http_code}\n"
+            --retry 3 --retry-delay 30 --max-time 300)
+
+          echo "Response: $RESPONSE"
+
+          python3 -c "
+          import sys, json
+          try:
+              d = json.loads('$RESPONSE')
+              print(
+                f'interview_reminders={d.get(\"interview_reminders\",0)} '
+                f'follow_up_reminders={d.get(\"follow_up_reminders\",0)} '
+                f'stale_alerts={d.get(\"stale_alerts\",0)} '
+                f'tokens_disabled={d.get(\"tokens_disabled\",0)}'
+              )
+          except Exception as e:
+              print('Could not parse response:', e)
+          "
+          echo "✅ Done"

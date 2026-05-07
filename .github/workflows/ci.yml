@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true   # cancel older run on the same branch when a new one starts
+
+jobs:
+  # ── Backend tests ───────────────────────────────────────────────────
+  backend:
+    name: Backend tests (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          APPNAME_MODE: desktop
+          STUB_JOBS_API: "1"
+          STUB_ANTHROPIC: "1"
+          STUB_RESEND: "1"
+          STUB_EXPO_PUSH: "1"
+          STUB_LEMONSQUEEZY: "1"
+          APPNAME_DISABLE_SCHEDULER: "1"
+        run: |
+          cd backend
+          pytest -q --tb=short
+        # Fail the whole CI run if any test fails
+
+  # ── Web typecheck ───────────────────────────────────────────────────
+  web:
+    name: Web typecheck (Next.js 15)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci --legacy-peer-deps
+
+      - name: Typecheck
+        run: cd web && npm run typecheck
+
+      - name: Build (catch compile errors)
+        run: cd web && npm run build
+        env:
+          # Use dummy values so the build doesn't fail on missing env vars
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          NEXT_PUBLIC_LS_PRO_MONTHLY_VARIANT_ID: "0"
+          NEXT_PUBLIC_LS_PRO_ANNUAL_VARIANT_ID: "0"
+          NEXT_PUBLIC_LS_COACH_MONTHLY_VARIANT_ID: "0"
+          NEXT_PUBLIC_LS_COACH_ANNUAL_VARIANT_ID: "0"
+
+  # ── Mobile typecheck ────────────────────────────────────────────────
+  mobile:
+    name: Mobile typecheck (Expo SDK 52)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: cd mobile && npm ci --legacy-peer-deps
+
+      - name: Typecheck
+        run: cd mobile && npx tsc --noEmit

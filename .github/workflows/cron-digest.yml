@@ -1,6 +1,6 @@
 name: cron · digest email
 
-# 06:15 UTC daily — 15 minutes after the fetch so the freshest jobs land in the email.
+# 06:15 UTC daily — 15 minutes after the fetch so freshest jobs land in the email.
 on:
   schedule:
     - cron: "15 6 * * *"
@@ -9,6 +9,7 @@ on:
 jobs:
   send-digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: POST /internal/digest/run (hour=6 bucket)
         env:
@@ -16,9 +17,27 @@ jobs:
           INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
         run: |
           set -euo pipefail
-          curl -fsSL -X POST "$API_URL/internal/digest/run" \
+          echo "Running digest at $(date -u)"
+
+          RESPONSE=$(curl -fsSL -X POST "$API_URL/internal/digest/run" \
             -H "Content-Type: application/json" \
             -H "X-Internal-Secret: $INTERNAL_SECRET" \
             -d '{"digest_hour_utc": 6}' \
-            --retry 3 --retry-delay 30 --max-time 300 \
-            -w "\nHTTP %{http_code}\n"
+            --retry 3 --retry-delay 30 --max-time 300)
+
+          echo "Response: $RESPONSE"
+
+          # Surface per-user errors from the response
+          python3 -c "
+          import sys, json
+          try:
+              d = json.loads('$RESPONSE')
+              print(f'sent={d.get(\"sent\",0)} skipped={d.get(\"skipped_no_jobs\",0)} failed={d.get(\"failed\",0)}')
+              errs = d.get('errors', [])
+              if errs:
+                  print('Errors:', errs)
+                  sys.exit(1)
+          except Exception as e:
+              print('Could not parse response:', e)
+          "
+          echo "✅ Done"

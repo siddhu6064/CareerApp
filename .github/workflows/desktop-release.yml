@@ -30,8 +30,9 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+# Top-level: restrict to read. publish-update-manifest overrides to write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -181,37 +182,22 @@ jobs:
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
 
-          # Fetch .sig content for a release asset (empty string if not signed)
           get_sig() {
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
               --pattern "${1}.sig" --output - 2>/dev/null || echo ""
           }
 
-          SIG_MAC_ARM=$(get_sig  "AppName_${VERSION}_aarch64.app.tar.gz")
-          SIG_MAC_X64=$(get_sig  "AppName_${VERSION}_x64.app.tar.gz")
-          SIG_LINUX=$(  get_sig  "appname_${VERSION}_amd64.AppImage.tar.gz")
-          SIG_WIN=$(    get_sig  "AppName_${VERSION}_x64-setup.nsis.zip")
+          SIG_MAC_ARM=$(get_sig "AppName_${VERSION}_aarch64.app.tar.gz")
+          SIG_MAC_X64=$(get_sig "AppName_${VERSION}_x64.app.tar.gz")
+          SIG_LINUX=$(get_sig "appname_${VERSION}_amd64.AppImage.tar.gz")
+          SIG_WIN=$(get_sig "AppName_${VERSION}_x64-setup.nsis.zip")
 
-          python3 - << PYMANIFEST
-          import json, sys
-          manifest = {
-            "version": "${VERSION}",
-            "notes": "See CHANGELOG.md for what's new.",
-            "pub_date": "${PUB_DATE}",
-            "platforms": {
-              "darwin-aarch64": {"signature": "${SIG_MAC_ARM}", "url": "${BASE}/AppName_${VERSION}_aarch64.app.tar.gz"},
-              "darwin-x86_64":  {"signature": "${SIG_MAC_X64}", "url": "${BASE}/AppName_${VERSION}_x64.app.tar.gz"},
-              "linux-x86_64":   {"signature": "${SIG_LINUX}",   "url": "${BASE}/appname_${VERSION}_amd64.AppImage.tar.gz"},
-              "windows-x86_64": {"signature": "${SIG_WIN}",     "url": "${BASE}/AppName_${VERSION}_x64-setup.nsis.zip"}
-            }
-          }
-          # Drop platforms with empty signatures (unsigned builds)
-          manifest["platforms"] = {k: v for k, v in manifest["platforms"].items() if v["signature"]}
-          print(json.dumps(manifest, indent=2))
-          PYMANIFEST > desktop/site/latest.json
-
+          # Build manifest — write Python to a file first to avoid YAML quoting issues
+          export VERSION PUB_DATE BASE SIG_MAC_ARM SIG_MAC_X64 SIG_LINUX SIG_WIN
+          python3 desktop/scripts/make_manifest.py
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add desktop/site/latest.json
           git diff --cached --quiet && echo "No manifest changes." || \
-            git commit -m "chore: update latest.json for ${TAG}" && git push origin main
+            (git commit -m "chore: update latest.json for ${TAG}" && git push origin main)
+
