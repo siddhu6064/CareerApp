@@ -7,11 +7,11 @@ Run in SaaS mode (requires Supabase env vars):
     APPNAME_MODE=saas uvicorn backend.main:app --reload
 """
 from __future__ import annotations
-
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 import os
@@ -1498,20 +1498,43 @@ async def run_daily_digest(
     failed = 0
     errors: list[str] = []
 
+    from backend.tailor.scorer import deterministic_score
+
     for u in users:
         try:
-            jobs = await storage.jobs_for_user_digest(
-                u["id"], limit=int(u.get("digest_count") or 5),
+            count = int(u.get("digest_count") or 5)
+            # Fetch 2× candidates so we can rank by ATS pre-score
+            candidate_jobs = await storage.jobs_for_user_digest(
+                u["id"], limit=max(count * 2, 10),
             )
-            if not jobs:
+            if not candidate_jobs:
                 skipped += 1
                 continue
+
+            # ATS pre-score: rank candidates against user's master resume.
+            # Uses the deterministic scoring_engine (pure Python, no API cost).
+            master = await storage.get_active_master_resume(u["id"])
+            if master:
+                for j in candidate_jobs:
+                    try:
+                        result = deterministic_score(master, j)
+                        j["ats_score"] = result["score"]
+                    except Exception:  # noqa: BLE001
+                        j.setdefault("ats_score", j.get("quality_score") or 0)
+                candidate_jobs.sort(key=lambda j: j.get("ats_score", 0), reverse=True)
+
+            jobs = candidate_jobs[:count]
+
+            # Fetch unsubscribe token for one-click opt-out link in email
+            prefs = await storage.get_notification_preferences(u["id"])
+            unsub_token = prefs.get("unsubscribe_token")
 
             subject, html_body = render_digest_html(
                 user_email=u["email"],
                 plan=u.get("plan", "free"),
                 jobs=jobs,
                 web_base_url=web_base,
+                unsubscribe_token=unsub_token,
             )
             text_body = render_digest_text(jobs=jobs, web_base_url=web_base)
 
@@ -1632,6 +1655,196 @@ async def run_push_notifications(
         stale_alerts=stale_count,
         tokens_disabled=tokens_disabled,
     )
+
+
+# ── Digest preview (authenticated) ───────────────────────────────────
+
+class DigestPreviewJob(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    title: str
+    company: str
+    location: str | None = None
+    remote_type: str | None = None
+    field: str | None = None
+    level: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    quality_score: float | None = None
+    ats_score: int | None = None   # pre-scored against user's master resume
+
+
+class DigestPreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    jobs: list[DigestPreviewJob]
+    total_candidates: int
+    scored: bool   # True if master resume was present for ATS pre-scoring
+    plan: str
+
+
+@app.get("/api/digest/preview", response_model=DigestPreviewResponse)
+async def digest_preview(
+    limit: int = Query(default=5, ge=1, le=20),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> DigestPreviewResponse:
+    """Preview the top N jobs that would be in today's digest — pre-scored.
+    Used in the settings page to show users what the digest looks like."""
+    user = await storage.get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    candidate_jobs = await storage.jobs_for_user_digest(
+        user_id, limit=max(limit * 2, 10),
+    )
+
+    from backend.tailor.scorer import deterministic_score
+    master = await storage.get_active_master_resume(user_id)
+    scored = bool(master)
+
+    if master:
+        for j in candidate_jobs:
+            try:
+                result = deterministic_score(master, j)
+                j["ats_score"] = result["score"]
+            except Exception:  # noqa: BLE001
+                j.setdefault("ats_score", None)
+        candidate_jobs.sort(key=lambda j: j.get("ats_score") or 0, reverse=True)
+
+    jobs = candidate_jobs[:limit]
+
+    return DigestPreviewResponse(
+        jobs=[DigestPreviewJob(**j) for j in jobs],
+        total_candidates=len(candidate_jobs),
+        scored=scored,
+        plan=user.get("plan", "free"),
+    )
+
+
+# ── One-click unsubscribe (no auth — token in email footer) ──────────
+
+class UnsubscribeResponse(BaseModel):
+    ok: bool
+    message: str
+
+
+@app.post("/api/digest/unsubscribe/{token}", response_model=UnsubscribeResponse)
+@app.get("/api/digest/unsubscribe/{token}", response_model=UnsubscribeResponse)
+async def digest_unsubscribe(
+    token: str,
+    storage: StorageAdapter = Depends(storage_dep),
+) -> UnsubscribeResponse:
+    """One-click unsubscribe. No auth required — token is sent in every digest email.
+    Handles both GET (browser click on link) and POST (RFC 8058 List-Unsubscribe-Post).
+    """
+    prefs = await storage.get_notification_prefs_by_unsubscribe_token(token)
+    if prefs is None:
+        # Return 200 anyway — don't reveal whether token is valid
+        return UnsubscribeResponse(ok=True, message="You have been unsubscribed from digest emails.")
+
+    user_id = prefs["user_id"]
+    await storage.update_notification_preferences(user_id, {"digest_enabled": False})
+    log.info("digest unsubscribe via token for user=%s", user_id)
+    return UnsubscribeResponse(ok=True, message="You have been unsubscribed from digest emails.")
+
+
+# ── Resend webhook (open / click / bounce tracking) ──────────────────
+
+import hashlib as _hashlib
+import hmac as _hmac
+import time as _time
+
+
+def _verify_svix_signature(
+    payload: bytes,
+    svix_id: str,
+    svix_timestamp: str,
+    svix_signature: str,
+    secret: str,
+) -> bool:
+    """Verify Svix webhook signature per https://docs.svix.com/receiving/verifying-payloads/how
+    Format: HMAC-SHA256(svix_id + "." + svix_timestamp + "." + payload_str) encoded as base64.
+    Multiple v1,<sig> values are separated by spaces.
+    """
+    import base64
+    try:
+        ts = int(svix_timestamp)
+        # Reject stale webhooks (>5 min)
+        if abs(_time.time() - ts) > 300:
+            return False
+    except (ValueError, OverflowError):
+        return False
+
+    to_sign = f"{svix_id}.{svix_timestamp}.{payload.decode('utf-8')}".encode()
+    # Svix secrets are prefixed "whsec_" + base64
+    raw_secret = secret
+    if secret.startswith("whsec_"):
+        import base64
+        raw_secret_bytes = base64.b64decode(secret[6:])
+    else:
+        raw_secret_bytes = secret.encode()
+
+    expected = base64.b64encode(
+        _hmac.new(raw_secret_bytes, to_sign, _hashlib.sha256).digest()
+    ).decode()
+
+    # svix_signature may be "v1,<sig1> v1,<sig2>"
+    for part in svix_signature.split(" "):
+        if "," in part:
+            _, sig = part.split(",", 1)
+            if _hmac.compare_digest(sig, expected):
+                return True
+    return False
+
+
+@app.post("/api/webhooks/resend", status_code=200)
+async def resend_webhook(
+    request: Request,
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, str]:
+    """Receive Resend webhook events (delivered via Svix).
+    Events we handle:
+      email.opened   → email_digest_log.opened_at
+      email.clicked  → email_digest_log.clicked_at
+      email.bounced  → log warning (future: disable digest for user)
+    """
+    payload = await request.body()
+
+    webhook_secret = os.getenv("RESEND_WEBHOOK_SECRET", "")
+    if webhook_secret:
+        svix_id        = request.headers.get("svix-id", "")
+        svix_timestamp = request.headers.get("svix-timestamp", "")
+        svix_signature = request.headers.get("svix-signature", "")
+
+        if not _verify_svix_signature(payload, svix_id, svix_timestamp, svix_signature, webhook_secret):
+            log.warning("resend webhook signature verification failed")
+            raise HTTPException(status_code=400, detail="invalid signature")
+
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON")
+
+    event_type: str = data.get("type", "")
+    email_data: dict[str, Any] = data.get("data", {})
+    resend_id: str = email_data.get("email_id", "") or email_data.get("id", "")
+
+    if not resend_id:
+        return {"status": "ignored", "reason": "no email_id"}
+
+    if event_type == "email.opened":
+        await storage.update_digest_log_event(resend_id, event_type="opened")
+        log.info("digest opened resend_id=%s", resend_id)
+    elif event_type == "email.clicked":
+        await storage.update_digest_log_event(resend_id, event_type="clicked")
+        log.info("digest clicked resend_id=%s", resend_id)
+    elif event_type in ("email.bounced", "email.delivery_delayed"):
+        # Log for now; future: auto-disable digest for the user
+        log.warning("resend event=%s resend_id=%s", event_type, resend_id)
+    else:
+        log.debug("resend webhook unhandled event=%s", event_type)
+
+    return {"status": "ok"}
 
 
 # ══════════════════════════════════════════════════════════════════════

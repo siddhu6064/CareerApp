@@ -1,5 +1,8 @@
 // Mobile push notification registration. Requests permission on first launch,
 // gets the Expo Push token, and registers it with the backend.
+//
+// Deep link on notification tap: the push payload includes `data.application_id`.
+// Call `subscribeToNotificationTaps(handler)` in _layout.tsx to navigate on tap.
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
@@ -49,3 +52,37 @@ export async function registerPushTokenIfPossible(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Subscribe to notification tap events.
+ * The backend sends `data: { application_id: "..." }` in every push.
+ * Call the returned cleanup function in useEffect to unsubscribe.
+ *
+ * Usage in _layout.tsx:
+ *   useEffect(() => subscribeToNotificationTaps((appId) => {
+ *     router.push({ pathname: "/applications/[id]", params: { id: appId } });
+ *   }), []);
+ */
+export function subscribeToNotificationTaps(
+  onTap: (applicationId: string) => void,
+): () => void {
+  // Set the handler that controls how notifications appear when foregrounded
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+
+  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const data = response.notification.request.content.data as Record<string, unknown> | null;
+    const appId = data?.application_id as string | undefined;
+    if (appId) {
+      onTap(appId);
+    }
+  });
+
+  return () => sub.remove();
+}
+

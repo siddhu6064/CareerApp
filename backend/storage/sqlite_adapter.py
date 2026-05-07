@@ -162,6 +162,24 @@ class SqliteAdapter(StorageAdapter):
             if name not in cols:
                 await self._db.execute(ddl)
 
+        # Add unsubscribe_token to notification_preferences if missing
+        async with self._db.execute("PRAGMA table_info(notification_preferences)") as cur:
+            np_cols = {row["name"] async for row in cur}
+        if "unsubscribe_token" not in np_cols:
+            await self._db.execute(
+                "ALTER TABLE notification_preferences ADD COLUMN unsubscribe_token TEXT"
+            )
+            # Back-fill existing rows
+            import secrets as _secrets
+            async with self._db.execute("SELECT user_id FROM notification_preferences") as cur:
+                existing = await cur.fetchall()
+            for row in existing:
+                tok = _secrets.token_urlsafe(32)
+                await self._db.execute(
+                    "UPDATE notification_preferences SET unsubscribe_token = ? WHERE user_id = ?",
+                    (tok, row["user_id"]),
+                )
+
         await self._db.commit()
 
     # ── Users ────────────────────────────────────────────────────────────
@@ -1073,11 +1091,25 @@ class SqliteAdapter(StorageAdapter):
         ) as cur:
             row = await cur.fetchone()
         if row:
-            return _row_to_prefs(dict(row))
+            prefs = dict(row)
+            # Back-fill unsubscribe_token if missing (e.g. row pre-dates migration)
+            if not prefs.get("unsubscribe_token"):
+                import secrets as _sec
+                tok = _sec.token_urlsafe(32)
+                await self._db.execute(
+                    "UPDATE notification_preferences SET unsubscribe_token = ? WHERE user_id = ?",
+                    (tok, user_id),
+                )
+                await self._db.commit()
+                prefs["unsubscribe_token"] = tok
+            return _row_to_prefs(prefs)
 
-        # Lazy-create default
+        # Lazy-create default with a fresh token
+        import secrets as _sec
+        tok = _sec.token_urlsafe(32)
         await self._db.execute(
-            "INSERT INTO notification_preferences (user_id) VALUES (?)", (user_id,),
+            "INSERT INTO notification_preferences (user_id, unsubscribe_token) VALUES (?, ?)",
+            (user_id, tok),
         )
         await self._db.commit()
         async with self._db.execute(
@@ -1152,6 +1184,35 @@ class SqliteAdapter(StorageAdapter):
         )
         await self._db.commit()
         return log_id
+
+    async def get_notification_prefs_by_unsubscribe_token(
+        self, token: str,
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM notification_preferences WHERE unsubscribe_token = ?",
+            (token,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def update_digest_log_event(
+        self, resend_id: str, *, event_type: str,
+    ) -> None:
+        assert self._db is not None
+        now = _utc_now()
+        if event_type == "opened":
+            await self._db.execute(
+                "UPDATE email_digest_log SET opened_at = ? WHERE resend_id = ? AND opened_at IS NULL",
+                (now, resend_id),
+            )
+        elif event_type == "clicked":
+            await self._db.execute(
+                "UPDATE email_digest_log SET clicked_at = ? WHERE resend_id = ?",
+                (now, resend_id),
+            )
+        # bounced: no column update needed — caller can log/alert separately
+        await self._db.commit()
 
     async def log_push_notification(
         self,

@@ -264,6 +264,23 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  // ── Phase 6: Digest unsubscribe + preview ─────────────────────────
+  digestUnsubscribe: (token: string) =>
+    request<{ ok: boolean; message: string }>(`/api/digest/unsubscribe/${encodeURIComponent(token)}`, {
+      method: "POST",
+    }),
+  digestPreview: (limit = 5) =>
+    request<{
+      jobs: {
+        id: string; title: string; company: string; location: string | null;
+        field: string | null; level: string | null; ats_score: number | null;
+        quality_score: number | null;
+      }[];
+      total_candidates: number;
+      scored: boolean;
+      plan: string;
+    }>(`/api/digest/preview?limit=${limit}`),
+
   // ── Phase 8: Cover Letter (Pro+ only — 402 for Free) ─────────────
   coverLetter: (body: { job_id: string; tailored_resume_id?: string; tone?: string }) =>
     request<CoverLetterResponse>("/api/cover-letter", {

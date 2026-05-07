@@ -286,6 +286,23 @@ class StorageAdapter(ABC):
         ...
 
     @abstractmethod
+    async def get_notification_prefs_by_unsubscribe_token(
+        self, token: str,
+    ) -> dict[str, Any] | None:
+        """Look up notification_preferences row (+ user_id) by unsubscribe_token.
+        Returns None if token is invalid or not found."""
+
+    @abstractmethod
+    async def update_digest_log_event(
+        self,
+        resend_id: str,
+        *,
+        event_type: str,   # "opened" | "clicked" | "bounced"
+    ) -> None:
+        """Update email_digest_log row matched by resend_id.
+        opened → set opened_at; clicked → set clicked_at. Ignored if resend_id unknown."""
+
+    @abstractmethod
     async def log_push_notification(
         self,
         user_id: str,

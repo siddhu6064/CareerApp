@@ -117,6 +117,8 @@ class SupabaseAdapter(StorageAdapter):
     async def update_notification_preferences(self, user_id, patch): raise NotImplementedError
     async def list_users_for_digest(self, digest_hour_utc): raise NotImplementedError
     async def log_email_digest(self, user_id, **kwargs): raise NotImplementedError
+    async def get_notification_prefs_by_unsubscribe_token(self, token): raise NotImplementedError
+    async def update_digest_log_event(self, resend_id, **kwargs): raise NotImplementedError
     async def log_push_notification(self, user_id, **kwargs): raise NotImplementedError
     async def applications_with_due_follow_ups(self): raise NotImplementedError
     async def applications_with_upcoming_interviews(self, **kwargs): raise NotImplementedError

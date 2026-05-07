@@ -99,6 +99,7 @@ def render_digest_html(
     plan: str,
     jobs: list[dict[str, Any]],
     web_base_url: str,
+    unsubscribe_token: str | None = None,
 ) -> tuple[str, str]:
     """Return (subject, html). Free tier hides ATS%, Pro+ shows it.
 
@@ -201,7 +202,7 @@ def render_digest_html(
         {upgrade_block}
         <div style="margin-top:16px;text-align:center;">
           <a href="{web_base_url}/settings" style="color:{INK_SOFT};">Settings</a> ·
-          <a href="{web_base_url}/settings#unsubscribe" style="color:{INK_SOFT};">Unsubscribe</a>
+          <a href="{web_base_url}/digest/unsubscribe/{unsubscribe_token or 'invalid'}" style="color:{INK_SOFT};">Unsubscribe</a>
         </div>
       </td></tr>
     </table>

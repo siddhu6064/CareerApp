@@ -229,6 +229,8 @@ export default function SettingsPage() {
           }))}
           onChange={(v) => update("digest_hour_utc", Number(v))}
         />
+
+        {prefs.digest_enabled && <DigestPreviewWidget count={prefs.digest_count} />}
       </section>
 
       <section className="bg-white border border-[var(--color-border)] rounded-lg p-6 space-y-4">
@@ -248,6 +250,72 @@ export default function SettingsPage() {
         Changes save automatically. Updated{" "}
         {prefs && new Date((prefs as Prefs & { updated_at: string }).updated_at).toLocaleString()}.
       </p>
+    </div>
+  );
+}
+
+// ── Digest preview widget ────────────────────────────────────────────
+function DigestPreviewWidget({ count }: { count: number }) {
+  const [preview, setPreview] = useState<{
+    jobs: { id: string; title: string; company: string; field: string | null; ats_score: number | null }[];
+    scored: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    if (preview) { setOpen(true); return; }
+    setLoading(true);
+    try {
+      const r = await api.digestPreview(count);
+      setPreview(r);
+      setOpen(true);
+    } catch {
+      // silently ignore
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-[var(--color-border)] pt-3">
+      <button
+        onClick={open ? () => setOpen(false) : load}
+        className="text-sm text-[var(--color-brand)] font-medium hover:underline"
+        disabled={loading}
+      >
+        {loading ? "Loading preview…" : open ? "▲ Hide preview" : "👁 Preview today's digest"}
+      </button>
+
+      {open && preview && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            Top {preview.jobs.length} jobs for your next digest
+            {preview.scored ? " — ATS pre-scored against your resume" : ""}:
+          </p>
+          {preview.jobs.map((j) => (
+            <div
+              key={j.id}
+              className="flex items-center gap-3 p-2.5 bg-[var(--color-bg)] rounded-lg border border-[var(--color-border)] text-sm"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{j.title}</p>
+                <p className="text-xs text-[var(--color-ink-soft)] truncate">{j.company}</p>
+              </div>
+              {j.field && (
+                <span className="text-xs px-2 py-0.5 bg-[var(--color-brand-bg)] text-[var(--color-brand)] rounded-full font-medium shrink-0">
+                  {j.field}
+                </span>
+              )}
+              {j.ats_score !== null && (
+                <span className="font-mono text-xs font-bold text-[var(--color-brand)] shrink-0">
+                  {j.ats_score}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

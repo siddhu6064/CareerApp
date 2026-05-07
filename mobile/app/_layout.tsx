@@ -1,12 +1,12 @@
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import { getToken } from "@/lib/auth";
 import { useStore } from "@/lib/store";
-import { registerPushTokenIfPossible } from "@/lib/notifications";
+import { registerPushTokenIfPossible, subscribeToNotificationTaps } from "@/lib/notifications";
 
 // Deep link URL pattern: appname://jobs/[id] or https://app.appname.io/jobs/[id]
 // The digest email CTA links to /jobs/[id] — this handler navigates after auth.
@@ -85,6 +85,13 @@ export default function RootLayout() {
 
   // Wire deep link handler — routes after auth is confirmed
   useDeepLinks(ready, hasToken);
+
+  // Wire push notification tap → navigate to application detail
+  const handleNotificationTap = useCallback((appId: string) => {
+    router.push({ pathname: "/applications/[id]", params: { id: appId } });
+  }, [router]);
+
+  useEffect(() => subscribeToNotificationTaps(handleNotificationTap), [handleNotificationTap]);
 
   if (!ready) return null;
 
