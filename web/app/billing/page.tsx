@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -23,6 +23,14 @@ const PRICE = {
 };
 
 export default function BillingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[var(--color-bg)]" />}>
+      <BillingPageInner />
+    </Suspense>
+  );
+}
+
+function BillingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const highlightPlan = searchParams?.get("plan"); // "pro" | "coach"

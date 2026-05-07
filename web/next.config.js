@@ -8,7 +8,7 @@ const isDesktop = process.env.APPNAME_BUILD_TARGET === "desktop";
 
 const nextConfig = {
   reactStrictMode: true,
-  experimental: { typedRoutes: false },
+  typedRoutes: false,
   // SaaS deployment: SSR on Vercel as before. Desktop: static export.
   ...(isDesktop && {
     output: "export",
