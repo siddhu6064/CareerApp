@@ -14,8 +14,11 @@ import type {
   CoachBranding,
   CoachClient,
   CoachClientAnalytics,
+  CoverLetterResponse,
+  CoverLetterOut,
   FetchNowResult,
   Interview,
+  InterviewPrepOut,
   Job,
   JobsPage,
   MasterResume,
@@ -260,6 +263,34 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // ── Phase 8: Cover Letter (Pro+ only — 402 for Free) ─────────────
+  coverLetter: (body: { job_id: string; tailored_resume_id?: string; tone?: string }) =>
+    request<CoverLetterResponse>("/api/cover-letter", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  listCoverLetters: (job_id?: string) => {
+    const q = job_id ? `?job_id=${encodeURIComponent(job_id)}` : "";
+    return request<CoverLetterOut[]>(`/api/cover-letters${q}`);
+  },
+  fetchCoverLetterPdf: async (url: string): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
+    return res.blob();
+  },
+
+  // ── Phase 8: Interview Prep (Pro+ only — 402 for Free) ────────────
+  interviewPrep: (job_id: string) =>
+    request<InterviewPrepOut>("/api/interview-prep", {
+      method: "POST", body: JSON.stringify({ job_id }),
+    }),
+  listInterviewPrep: (job_id?: string) => {
+    const q = job_id ? `?job_id=${encodeURIComponent(job_id)}` : "";
+    return request<InterviewPrepOut[]>(`/api/interview-prep${q}`);
+  },
 
   // ── Phase 8: Analytics (Pro+ only — 402 for Free) ─────────────────
   analyticsSummary: (days = 90) =>

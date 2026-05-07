@@ -98,6 +98,7 @@ export default function RootLayout() {
           <Stack.Screen name="jobs/[id]" options={{ headerShown: true, title: "Job" }} />
           <Stack.Screen name="applications/[id]" options={{ headerShown: true, title: "Application" }} />
           <Stack.Screen name="recruiter/[appId]" options={{ headerShown: true, title: "Recruiter Contacts" }} />
+          <Stack.Screen name="interview-prep/[jobId]" options={{ headerShown: true, title: "Interview Prep" }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

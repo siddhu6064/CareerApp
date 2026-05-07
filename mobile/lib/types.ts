@@ -207,3 +207,23 @@ export interface AnalyticsDigest {
   click_through_rate: number;
   conversion_rate: number;
 }
+
+// ── Phase 8: Interview Prep ───────────────────────────────────────
+export interface InterviewQuestionOut {
+  type: string;
+  question: string;
+  why_asked: string;
+  suggested_approach: string;
+}
+
+export interface InterviewPrepOut {
+  id: string;
+  user_id: string;
+  job_id: string;
+  questions: InterviewQuestionOut[];
+  strengths: string[];
+  gaps_to_address: string[];
+  talking_points: string[];
+  haiku_method: string | null;
+  created_at: string;
+}

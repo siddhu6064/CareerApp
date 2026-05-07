@@ -189,6 +189,19 @@ export default function ApplicationDetailScreen() {
           onChange={setInterviews}
         />
 
+        {/* Interview Prep quick-link (Pro) */}
+        {app.job_id && (
+          <TouchableOpacity
+            style={s.prepBtn}
+            onPress={() =>
+              router.push({ pathname: "/interview-prep/[jobId]", params: { jobId: app.job_id! } })
+            }
+          >
+            <Text style={s.prepBtnText}>🎯 Interview Prep (Pro)</Text>
+            <Text style={s.prepBtnSub}>AI questions + frameworks — cached offline →</Text>
+          </TouchableOpacity>
+        )}
+
         <SalaryBlock
           appId={app.id}
           items={salary}
@@ -692,4 +705,14 @@ const s = StyleSheet.create({
     backgroundColor: colors.brand, marginTop: 6,
   },
   historyText: { fontSize: fontSize.sm, color: colors.ink },
+
+  // interview prep quick-link
+  prepBtn: {
+    backgroundColor: colors.brandBg,
+    borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.brand,
+    padding: space.md, gap: 4,
+  },
+  prepBtnText: { fontSize: fontSize.sm, fontWeight: "700" as const, color: colors.brand },
+  prepBtnSub:  { fontSize: fontSize.xs, color: colors.brand, opacity: 0.7 },
 });

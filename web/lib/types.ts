@@ -300,6 +300,52 @@ export interface CoachClientAnalytics {
   window_days: number;
 }
 
+// ── Phase 8: Cover Letter ─────────────────────────────────────────
+export interface CoverLetterResponse {
+  id: string;
+  job_id: string;
+  tailored_resume_id: string | null;
+  content_markdown: string;
+  tone: string;
+  pdf_url: string;
+  pdf_extension: string;
+  sonnet_method: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface CoverLetterOut {
+  id: string;
+  user_id: string;
+  job_id: string;
+  tailored_resume_id: string | null;
+  content_markdown: string;
+  tone: string;
+  pdf_path: string | null;
+  sonnet_method: string | null;
+  created_at: string;
+}
+
+// ── Phase 8: Interview Prep ───────────────────────────────────────
+export interface InterviewQuestionOut {
+  type: string;
+  question: string;
+  why_asked: string;
+  suggested_approach: string;
+}
+
+export interface InterviewPrepOut {
+  id: string;
+  user_id: string;
+  job_id: string;
+  questions: InterviewQuestionOut[];
+  strengths: string[];
+  gaps_to_address: string[];
+  talking_points: string[];
+  haiku_method: string | null;
+  created_at: string;
+}
+
 // ── Phase 10: Desktop BYOK ────────────────────────────────────────────
 export interface ApiKeyOut {
   set: boolean;

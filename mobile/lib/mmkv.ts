@@ -50,4 +50,5 @@ export const mmkv = {
 export const MMKV_KEYS = {
   APPLICATIONS: "tracker:applications",
   SYNC_QUEUE:   "tracker:sync_queue",
+  INTERVIEW_PREP_PREFIX: "prep:job:", // key = "prep:job:{jobId}"
 } as const;

@@ -9,6 +9,7 @@ import type {
   Application,
   ApplicationStatus,
   Interview,
+  InterviewPrepOut,
   Job,
   JobsPage,
   MasterResume,
@@ -281,4 +282,14 @@ export const api = {
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
   analyticsDigest: (days = 90) =>
     request<AnalyticsDigest>(`/api/analytics/digest?days=${days}`),
+
+  // ── Phase 8: Interview Prep (Pro+ only) ──────────────────────────
+  interviewPrep: (job_id: string) =>
+    request<InterviewPrepOut>("/api/interview-prep", {
+      method: "POST", body: JSON.stringify({ job_id }),
+    }),
+  listInterviewPrep: (job_id?: string) => {
+    const q = job_id ? `?job_id=${encodeURIComponent(job_id)}` : "";
+    return request<InterviewPrepOut[]>(`/api/interview-prep${q}`);
+  },
 };
