@@ -28,7 +28,7 @@ weasyprint==68.1
 PyJWT>=2.8.0,<3.0.0
 # supabase-py async client — used by SupabaseAdapter in SaaS mode.
 supabase>=2.3.0,<3.0.0
--e 
+
 # Phase 10 — desktop-only deps
 apscheduler==3.10.4
 tzlocal==5.2
