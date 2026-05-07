@@ -16,6 +16,7 @@ async def storage(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("APPNAME_MODE", "desktop")
     monkeypatch.setenv("APPNAME_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("APPNAME_DISABLE_SCHEDULER", "1")
 
     # Force re-read of config module-level constants by reloading it
     import importlib

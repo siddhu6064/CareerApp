@@ -21,12 +21,28 @@ os.environ["STUB_ANTHROPIC"] = "1"
 pytestmark = pytest.mark.asyncio
 
 
+async def _single_source_mode(storage) -> None:
+    """In desktop mode (the test default) the pipeline now fans out to all
+    configured ATS boards. The pipeline tests below want the original
+    12-fixture-per-run determinism, so configure exactly one source.
+
+    Phase 10.4: stub mode rewrites source name on the same fixture set, so
+    1 board with 1 slug → 12 leads (matches old JSearch behavior).
+    """
+    await storage.set_setting("sources.greenhouse", "openai")
+    await storage.set_setting("sources.lever", "")
+    await storage.set_setting("sources.ashby", "")
+    await storage.set_setting("sources.workable", "")
+
+
 @pytest.fixture
 async def client(storage):
     from backend.main import app
     from backend.jobs.cache import job_feed_cache
 
     job_feed_cache.clear()
+    # Pin to a single source so per-fixture fetch counts stay deterministic.
+    await _single_source_mode(storage)
     async with app.router.lifespan_context(app):
         async with AsyncClient(
             transport=ASGITransport(app=app),
@@ -38,6 +54,7 @@ async def client(storage):
 # ── Pipeline directly ────────────────────────────────────────────────
 async def test_pipeline_filters_spam_and_inserts_real_jobs(storage):
     from backend.jobs.pipeline import run_ingestion
+    await _single_source_mode(storage)
 
     counters = await run_ingestion(storage, queries=["test"])
 
@@ -51,6 +68,7 @@ async def test_pipeline_filters_spam_and_inserts_real_jobs(storage):
 
 async def test_pipeline_dedup_idempotent(storage):
     from backend.jobs.pipeline import run_ingestion
+    await _single_source_mode(storage)
 
     first = await run_ingestion(storage, queries=["test"])
     second = await run_ingestion(storage, queries=["test"])
@@ -63,6 +81,7 @@ async def test_pipeline_dedup_idempotent(storage):
 
 async def test_pipeline_tags_field_correctly(storage):
     from backend.jobs.pipeline import run_ingestion
+    await _single_source_mode(storage)
 
     await run_ingestion(storage, queries=["test"])
     listing = await storage.list_jobs(page_size=100)
@@ -73,7 +92,7 @@ async def test_pipeline_tags_field_correctly(storage):
     assert tam["field"] == "Technical Account Manager"
 
     # The OpenAI ML role should be Engineering or Data
-    ml = next((j for j in listing["items"] if j["company"] == "OpenAI"), None)
+    ml = next((j for j in listing["items"] if j["company"] == "OpenAI" or j["company"] == "openai"), None)
     assert ml is not None
     assert ml["field"] in ("Engineering", "Data")
 

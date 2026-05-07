@@ -25,3 +25,7 @@ weasyprint==68.1
 
 # ── Auth (SaaS, Phase 6) ──────────────────────────────────────────
 # python-jose[cryptography]>=3.3.0  — added when SupabaseAdapter is implemented
+-e 
+# Phase 10 — desktop-only deps
+apscheduler==3.10.4
+tzlocal==5.2

@@ -50,10 +50,37 @@ async def lifespan(app: FastAPI):
             email="local@desktop",
             plan="desktop",
         )
+        # Phase 10.3: Load BYOK keys from settings into env so existing
+        # os.getenv("ANTHROPIC_API_KEY") call sites pick them up. ENV var
+        # always wins (lets devs override without touching SQLite).
+        from backend.llm import SETTINGS_KEY_ANTHROPIC, SETTINGS_KEY_GITHUB
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            stored = await storage.get_setting(SETTINGS_KEY_ANTHROPIC)
+            if stored:
+                os.environ["ANTHROPIC_API_KEY"] = stored
+        if not os.environ.get("GITHUB_TOKEN"):
+            stored = await storage.get_setting(SETTINGS_KEY_GITHUB)
+            if stored:
+                os.environ["GITHUB_TOKEN"] = stored
+
         # Print local API token to stdout — Tauri captures this on launch.
         print(f"\n[AppName] mode=desktop  api_token={config.LOCAL_API_TOKEN}\n", flush=True)
 
+        # Phase 10.6: in-process daily fetch scheduler. Disabled when
+        # APPNAME_DISABLE_SCHEDULER=1 (set in tests so we don't accidentally
+        # pile up jobs across pytest runs).
+        if os.getenv("APPNAME_DISABLE_SCHEDULER", "0") != "1":
+            from backend.scheduler import start_desktop_scheduler, stop_desktop_scheduler
+            start_desktop_scheduler(get_storage)
+
     yield
+
+    if config.is_desktop():
+        try:
+            from backend.scheduler import stop_desktop_scheduler
+            stop_desktop_scheduler()
+        except Exception:  # noqa: BLE001
+            pass
     await storage.disconnect()
 
 
@@ -2356,3 +2383,166 @@ async def coach_upload_branding_logo(
     key = make_resume_key(user_id, suffix=f"coach-logo.{ext}")
     saved = await fs.save(contents, key=key, content_type=file.content_type or "image/png")
     return {"logo_path": saved}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 10 — Desktop Variant (BYOK, source adapters, manual fetch)
+# ══════════════════════════════════════════════════════════════════════
+from backend import llm
+from backend.llm import (
+    SETTINGS_KEY_ANTHROPIC,
+    SETTINGS_KEY_GITHUB,
+    validate_anthropic_key,
+    validate_github_token,
+)
+
+
+def _require_desktop() -> None:
+    """Settings endpoints (BYOK + sources) are desktop-mode only."""
+    if not config.is_desktop():
+        raise HTTPException(
+            status_code=404,
+            detail="endpoint only available in desktop mode",
+        )
+
+
+# ── Models ─────────────────────────────────────────────────────────
+class ApiKeyPut(StrictBody):
+    api_key: str
+
+
+class ApiKeyOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    set: bool                   # whether a key is stored
+    key_preview: str | None = None  # first 8 chars for display ('sk-ant-…')
+
+
+class KeyValidateOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    ok: bool
+    model: str | None = None
+    login: str | None = None    # github
+    error: str | None = None
+
+
+def _preview(key: str) -> str:
+    if not key:
+        return ""
+    return key[:8] + "…" if len(key) > 12 else key
+
+
+@app.get("/api/settings/keys", response_model=dict[str, ApiKeyOut])
+async def desktop_get_keys(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, ApiKeyOut]:
+    """Returns which BYOK keys are set (preview only — never the full value)."""
+    _require_desktop()
+    anthropic_key = await storage.get_setting(SETTINGS_KEY_ANTHROPIC) or ""
+    github_token = await storage.get_setting(SETTINGS_KEY_GITHUB) or ""
+    return {
+        "anthropic": ApiKeyOut(
+            set=bool(anthropic_key),
+            key_preview=_preview(anthropic_key) if anthropic_key else None,
+        ),
+        "github": ApiKeyOut(
+            set=bool(github_token),
+            key_preview=_preview(github_token) if github_token else None,
+        ),
+    }
+
+
+@app.put("/api/settings/keys/anthropic", response_model=ApiKeyOut)
+async def desktop_put_anthropic_key(
+    body: ApiKeyPut,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> ApiKeyOut:
+    _require_desktop()
+    key = body.api_key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="api_key is required")
+    if not key.startswith("sk-ant-") and len(key) < 20:
+        # Lenient — Anthropic key formats can change. Just sanity-check shape.
+        raise HTTPException(status_code=400, detail="key looks malformed")
+    await storage.set_setting(SETTINGS_KEY_ANTHROPIC, key)
+    return ApiKeyOut(set=True, key_preview=_preview(key))
+
+
+@app.delete("/api/settings/keys/anthropic", status_code=204)
+async def desktop_clear_anthropic_key(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> None:
+    _require_desktop()
+    await storage.set_setting(SETTINGS_KEY_ANTHROPIC, "")
+
+
+@app.put("/api/settings/keys/github", response_model=ApiKeyOut)
+async def desktop_put_github_token(
+    body: ApiKeyPut,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> ApiKeyOut:
+    _require_desktop()
+    token = body.api_key.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    await storage.set_setting(SETTINGS_KEY_GITHUB, token)
+    return ApiKeyOut(set=True, key_preview=_preview(token))
+
+
+@app.delete("/api/settings/keys/github", status_code=204)
+async def desktop_clear_github_token(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> None:
+    _require_desktop()
+    await storage.set_setting(SETTINGS_KEY_GITHUB, "")
+
+
+@app.post("/api/settings/keys/validate", response_model=dict[str, KeyValidateOut])
+async def desktop_validate_keys(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, KeyValidateOut]:
+    """Pings Anthropic + GitHub with the currently-stored keys."""
+    _require_desktop()
+    anthropic_key = await llm.get_anthropic_api_key(storage)
+    github_token = await llm.get_github_token(storage)
+    out: dict[str, KeyValidateOut] = {}
+
+    a = await validate_anthropic_key(anthropic_key) if anthropic_key else {
+        "ok": False, "model": None, "error": "no key set",
+    }
+    out["anthropic"] = KeyValidateOut(**a)
+
+    if github_token:
+        g = await validate_github_token(github_token)
+        out["github"] = KeyValidateOut(**g)
+    else:
+        out["github"] = KeyValidateOut(ok=False, error="no token set")
+    return out
+
+
+# ── 10.6: manual fetch trigger (desktop power-user button) ────────
+@app.post("/api/jobs/fetch-now")
+async def desktop_fetch_now(
+    queries: list[str] | None = None,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, Any]:
+    """Desktop manual 'Fetch jobs now' button. SaaS users hit
+    /internal/jobs/fetch via the cron service instead."""
+    _require_desktop()
+    from backend.jobs.pipeline import run_ingestion
+    try:
+        counters = await run_ingestion(
+            storage=storage,
+            queries=queries or ["software engineer"],
+        )
+    except Exception as e:  # noqa: BLE001
+        log.exception("manual fetch failed")
+        raise HTTPException(status_code=500, detail=str(e))
+    expired = await storage.mark_expired_jobs()
+    return {**counters, "expired_marked": expired}
