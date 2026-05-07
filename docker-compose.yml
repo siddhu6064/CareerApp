@@ -1,0 +1,54 @@
+version: "3.9"
+
+# Local SaaS development stack.
+# Desktop mode doesn't need docker-compose — just run uvicorn directly.
+#
+# Usage:
+#   cp backend/.env.example backend/.env   # fill in SUPABASE_* vars
+#   cp web/.env.example     web/.env.local
+#   docker compose up --build
+#
+# Web and mobile still run natively (Next.js dev server, Expo CLI).
+# Only the FastAPI backend is containerised here.
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: appname-backend:dev
+    container_name: appname-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override to SaaS in compose — desktop mode doesn't need this container
+      APPNAME_MODE: saas
+      # Stub flags — set to 0 to hit real Resend / Expo Push / jobs APIs
+      STUB_ANTHROPIC: "0"
+      STUB_JOBS_API:  "0"
+      STUB_RESEND:    "0"
+      STUB_EXPO_PUSH: "0"
+      APPNAME_DISABLE_SCHEDULER: "0"
+    volumes:
+      # Mount source for hot-reload during dev (uvicorn --reload sees changes)
+      - ./backend:/app/backend:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: >
+      uvicorn backend.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir /app/backend
+
+networks:
+  default:
+    name: appname-dev
