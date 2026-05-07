@@ -23,8 +23,10 @@ weasyprint==68.1
 # ── Email ─────────────────────────────────────────────────────────
 # resend>=2.0.0  — added with Phase 6 digest
 
-# ── Auth (SaaS, Phase 6) ──────────────────────────────────────────
-# python-jose[cryptography]>=3.3.0  — added when SupabaseAdapter is implemented
+# ── Auth (SaaS, Phase 3) ──────────────────────────────────────────
+# PyJWT is used by supabase_jwt.py to verify HS256 tokens in SaaS mode.
+# Available as a transitive dep in most environments; pinned here for clarity.
+PyJWT>=2.8.0,<3.0.0
 -e 
 # Phase 10 — desktop-only deps
 apscheduler==3.10.4

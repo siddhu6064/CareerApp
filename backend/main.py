@@ -150,12 +150,16 @@ async def put_me_preferences(
     user_id: str = Depends(require_user),
     storage: StorageAdapter = Depends(storage_dep),
 ) -> UserResponse:
+    # Use model_fields_set to distinguish explicit null (clear) from omitted (skip).
+    # e.g. {"field": null} → clear field. {} → leave field unchanged.
+    sentinel = object()
+    explicitly_set = body.model_fields_set
     user = await storage.update_user_preferences(
         user_id=user_id,
-        field=body.field,
-        level=body.level,
-        location=body.location,
-        remote_pref=body.remote_pref,
+        field=body.field if "field" in explicitly_set else sentinel,  # type: ignore[arg-type]
+        level=body.level if "level" in explicitly_set else sentinel,  # type: ignore[arg-type]
+        location=body.location if "location" in explicitly_set else sentinel,  # type: ignore[arg-type]
+        remote_pref=body.remote_pref if "remote_pref" in explicitly_set else sentinel,  # type: ignore[arg-type]
     )
     return UserResponse(
         id=user["id"],

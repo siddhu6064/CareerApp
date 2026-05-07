@@ -223,17 +223,38 @@ class SqliteAdapter(StorageAdapter):
         location: str | None = None,
         remote_pref: str | None = None,
     ) -> dict[str, Any]:
+        """Patch job-preference columns. Accepts a sentinel object as a "skip"
+        marker so callers can distinguish between explicit null (clear) and
+        omitted (leave unchanged). Any value that is not the sentinel object
+        (including None) is written to the DB.
+        """
         assert self._db is not None
+        # Import here to avoid circular dependency with main.py's sentinel
+        _SKIP = type(None)  # replaced by actual sentinel check below
+
         now = _utc_now()
         sets, params = ["updated_at = ?"], [now]
-        if field is not None:
-            sets.append("field = ?"); params.append(field)
-        if level is not None:
-            sets.append("level = ?"); params.append(level)
-        if location is not None:
-            sets.append("location = ?"); params.append(location)
-        if remote_pref is not None:
-            sets.append("remote_pref = ?"); params.append(remote_pref)
+
+        # The main.py endpoint passes a plain object() as sentinel for "skip".
+        # We detect it by checking it's not str and not NoneType (i.e. it's an
+        # anonymous object). Simpler: isinstance check for valid types.
+        def _should_set(v: Any) -> bool:
+            return isinstance(v, (str, type(None))) and not (
+                isinstance(v, type) and v is type(None)
+            )
+
+        # Actually: sentinel comes in as object() — not str, not None.
+        # Real values are str | None. So just check: is the value a str or
+        # is it literally the None singleton (not some other type)?
+        def _is_real_value(v: Any) -> bool:
+            return v is None or isinstance(v, str)
+
+        for col, val in (("field", field), ("level", level),
+                         ("location", location), ("remote_pref", remote_pref)):
+            if _is_real_value(val):
+                sets.append(f"{col} = ?")
+                params.append(val)
+
         params.append(user_id)
         await self._db.execute(
             f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
