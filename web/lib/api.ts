@@ -14,20 +14,31 @@ import type {
   CoachBranding,
   CoachClient,
   CoachClientAnalytics,
+  FetchNowResult,
   Interview,
   Job,
   JobsPage,
   MasterResume,
   RecruiterContact,
   SalaryDetails,
+  SettingsKeys,
+  SettingsValidateResult,
   TailoredResume,
   TailorQuota,
   TailorResponse,
 } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-
 const TOKEN_KEY = "appname_token";
+const URL_KEY = "appname_api_url";
+
+function resolveBase(): string {
+  // Desktop mode: Tauri injects api_url into localStorage on boot.
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem(URL_KEY);
+    if (stored) return stored;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -38,6 +49,7 @@ export function setToken(t: string) {
 }
 export function clearToken() {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(URL_KEY);
 }
 
 class ApiError extends Error {
@@ -59,7 +71,7 @@ async function request<T>(
 
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...opts, headers });
+    res = await fetch(`${resolveBase()}${path}`, { ...opts, headers });
   } catch (err) {
     throw new ApiError(0, null, `Network error: ${(err as Error).message}`);
   }
@@ -200,11 +212,11 @@ export const api = {
   tailoredPdfUrl: (id: string) => {
     const token = getToken() || "";
     // Bearer-protected — caller should fetch with auth, then create a blob URL.
-    return `${BASE}/api/tailored-resumes/${id}/pdf?_t=${token.slice(0, 8)}`;
+    return `${resolveBase()}/api/tailored-resumes/${id}/pdf?_t=${token.slice(0, 8)}`;
   },
   fetchTailoredPdf: async (id: string): Promise<Blob> => {
     const token = getToken();
-    const res = await fetch(`${BASE}/api/tailored-resumes/${id}/pdf`, {
+    const res = await fetch(`${resolveBase()}/api/tailored-resumes/${id}/pdf`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
@@ -312,6 +324,32 @@ export const api = {
       body: fd,
     });
   },
+
+  // ── Phase 10: Desktop BYOK + manual fetch (404 in SaaS) ──────────
+  settingsKeys: () => request<SettingsKeys>("/api/settings/keys"),
+  putAnthropicKey: (api_key: string) =>
+    request<{ set: boolean; key_preview: string | null }>(
+      "/api/settings/keys/anthropic",
+      { method: "PUT", body: JSON.stringify({ api_key }) },
+    ),
+  deleteAnthropicKey: () =>
+    request<void>("/api/settings/keys/anthropic", { method: "DELETE" }),
+  putGithubToken: (api_key: string) =>
+    request<{ set: boolean; key_preview: string | null }>(
+      "/api/settings/keys/github",
+      { method: "PUT", body: JSON.stringify({ api_key }) },
+    ),
+  deleteGithubToken: () =>
+    request<void>("/api/settings/keys/github", { method: "DELETE" }),
+  validateKeys: () =>
+    request<SettingsValidateResult>("/api/settings/keys/validate", {
+      method: "POST",
+    }),
+  fetchJobsNow: (queries: string[] = []) =>
+    request<FetchNowResult>("/api/jobs/fetch-now", {
+      method: "POST",
+      body: JSON.stringify(queries),
+    }),
 };
 
 export { ApiError };

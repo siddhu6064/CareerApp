@@ -1,4 +1,4 @@
-# [AppName] — Phases 1–6 + 8 + 9
+# [AppName] — Phases 1–6 + 8 + 9 + 10 (code/config)
 
 Multi-tenant SaaS job-search platform with web + mobile clients, Render-ready
 backend, daily digest email, push notifications, and GitHub Actions cron.
@@ -12,23 +12,36 @@ selects storage and auth strategy.
 | Phase | Status | Notes |
 |------:|:-------|:------|
 | 1 — Foundation                  | ✅ done | StorageAdapter pattern, mode-aware config, local-token auth |
-| 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs, JustHireMe quality_gate + tagger, dedup, TTL cache |
-| 3 — Resume + Tracker            | ✅ done | Master resume parser (stub + Sonnet ready), 8-stage tracker, sub-resources |
-| 4a — Web UI                     | ✅ done | Next.js 15, 14 routes (incl. /coach/*), kanban, settings panel |
-| 4b — Mobile                     | ✅ done | Expo SDK 52, Router 4, 5 tabs (incl. analytics), push registration on auth |
+| 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs (SaaS), Greenhouse/Lever/Ashby/Workable (desktop) |
+| 3 — Resume + Tracker            | ✅ done | Master resume parser, 8-stage tracker, sub-resources |
+| 4a — Web UI                     | ✅ done | Next.js 15, 16 routes, kanban, settings panel + BYOK card |
+| 4b — Mobile                     | ✅ done | Expo SDK 52, 5 tabs, push registration |
 | 5 — AI Tailor + PDF             | ✅ done | Sonnet structured output, WeasyPrint, Free 3 / Pro 100 / Coach 100 / Desktop ∞ |
-| 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GitHub Actions cron 06:00/06:15/06:30 UTC |
+| 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GH Actions cron |
 | 7 — Billing                     | ⏳ next  | LemonSqueezy webhooks |
-| 8 — Pro features                | ✅ done | Cover letters + interview prep + analytics dashboard. App Store config ready (`mobile/SUBMIT.md`); user runs `eas submit` themselves |
-| 9 — Coach features              | ✅ done | 14 endpoints, multi-client (10 cap), bulk tailor (parallel `asyncio.gather`), white-label PDF (logo + brand color), invite acceptance flow. Coach plan ($49/mo) gated server-side. |
-| 10 — Desktop variant            | ⏳ later | Tauri shell |
+| 8 — Pro features                | ✅ done | Cover letters, interview prep, analytics |
+| 9 — Coach features              | ✅ done | 14 endpoints, multi-client, bulk tailor, white-label PDF |
+| 10 — Desktop variant            | ✅ code/config | BYOK + 4 ATS adapters + Tauri 2 shell + APScheduler + auto-updater + signing config + GH Actions release workflow. **Paid certs ($99 Apple + $300 Windows EV) and multi-OS validation are user actions — see `docs/DESKTOP_VALIDATION.md`.** |
 
 ## Test status
 
-- **141 backend tests passing** (`pytest backend/tests/`)
+- **162 backend tests passing** in BOTH `APPNAME_MODE=desktop` AND `APPNAME_MODE=saas` (no regressions)
 - Web typecheck + production build clean (Next 15.5.16)
 - Mobile TypeScript clean (Expo SDK 52)
-- 57 backend endpoints (was 43 — +14 coach)
+- 70 backend endpoints (was 57 — +13 Phase 10: BYOK, validate-keys, manual fetch)
+
+## Phase 10 user-action checklist
+
+Code is shipped. Before tagging `v0.1.0`:
+
+1. Apple Developer Program enrollment ($99/yr)
+2. Windows EV code signing cert (~$300/yr)
+3. Generate ed25519 updater keypair: `cargo tauri signer generate -w ~/.tauri/appname.key`
+4. Replace `REPLACE_WITH_TAURI_UPDATER_PUBKEY` in `desktop/src-tauri/tauri.conf.json`
+5. Set GitHub repo secrets (see top of `.github/workflows/desktop-release.yml`)
+6. Build real `icon.icns` + `icon.ico` (see `desktop/src-tauri/icons/README.md`)
+7. Run multi-OS validation in `docs/DESKTOP_VALIDATION.md`
+8. Stand up `desktop.appname.io` for the update manifest (Vercel)
 
 ## Repo layout
 

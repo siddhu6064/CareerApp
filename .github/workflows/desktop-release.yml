@@ -1,0 +1,172 @@
+name: Desktop release
+
+# Phase 10.8 — Builds the Tauri desktop app on macOS, Windows, and Linux
+# when a tag matching v0.* (or v1.*) is pushed. Each runner builds the
+# FastAPI sidecar with PyInstaller, then runs `cargo tauri build` which
+# bundles it as the externalBin, signs (if certs present), and publishes
+# a draft GitHub Release.
+#
+# To trigger:
+#     git tag v0.1.0 && git push --tags
+#
+# Required GitHub repository secrets (set under Settings → Secrets):
+#   TAURI_SIGNING_PRIVATE_KEY      — ed25519 private key for the updater
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#   APPLE_CERTIFICATE              — base64 of a .p12 with Developer ID app cert
+#   APPLE_CERTIFICATE_PASSWORD     — password for the .p12
+#   APPLE_SIGNING_IDENTITY         — e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID                       — Apple ID email (for notarization)
+#   APPLE_PASSWORD                 — app-specific password
+#   APPLE_TEAM_ID                  — 10-char Team ID
+#   WINDOWS_CERTIFICATE            — base64 of the .pfx (or thumbprint if HSM)
+#   WINDOWS_CERTIFICATE_PASSWORD
+#
+# When secrets are absent the build still succeeds — output binaries are
+# unsigned. Useful for early-access dogfooding before paid certs land.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      # Linux-only system deps for Tauri (webkit2gtk + GTK headers).
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install web dependencies
+        run: |
+          cd web
+          npm ci --legacy-peer-deps
+
+      - name: Build web (static export)
+        run: |
+          cd web
+          APPNAME_BUILD_TARGET=desktop npm run build:desktop
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller==6.10.0
+
+      # PyInstaller for the FastAPI sidecar. The build_sidecar.sh helper
+      # detects the host triple and renames the output to match Tauri's
+      # externalBin convention.
+      - name: Build sidecar (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: ./desktop/scripts/build_sidecar.sh
+
+      - name: Build sidecar (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cd backend && pyinstaller appname-server.spec --clean --noconfirm
+          cd ..
+          mkdir -p desktop/src-tauri/binaries
+          HOST_TRIPLE=$(rustc -vV | grep host: | sed 's/host: //')
+          cp backend/dist/appname-server.exe "desktop/src-tauri/binaries/appname-server-${HOST_TRIPLE}.exe"
+
+      # macOS code-signing setup (only if cert secrets present).
+      - name: Import Apple cert
+        if: startsWith(matrix.os, 'macos') && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build & publish Tauri bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS signing + notarization
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows signing (set if you have an EV cert; otherwise empty == unsigned bundle)
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
+          projectPath: desktop/src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "AppName ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for what's new."
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
+
+  # After the matrix completes, regenerate latest.json so the auto-updater
+  # endpoint (https://desktop.appname.io/updates.json) points at this release.
+  publish-update-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate manifest stub
+        run: |
+          # The actual manifest is hosted at desktop.appname.io and updated
+          # by tauri-action's release output. This step is a placeholder
+          # for any post-release housekeeping (e.g., posting to Slack/Discord).
+          echo "Release ${{ github.ref_name }} built — update manifest will be regenerated by the static site build."

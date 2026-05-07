@@ -299,3 +299,31 @@ export interface CoachClientAnalytics {
   funnel: AnalyticsFunnel;
   window_days: number;
 }
+
+// ── Phase 10: Desktop BYOK ────────────────────────────────────────────
+export interface ApiKeyOut {
+  set: boolean;
+  key_preview: string | null;
+}
+export interface SettingsKeys {
+  anthropic: ApiKeyOut;
+  github: ApiKeyOut;
+}
+export interface KeyValidateOut {
+  ok: boolean;
+  model?: string | null;
+  login?: string | null;
+  error?: string | null;
+}
+export interface SettingsValidateResult {
+  anthropic: KeyValidateOut;
+  github: KeyValidateOut;
+}
+export interface FetchNowResult {
+  fetched: number;
+  gated: number;
+  tagged: number;
+  inserted: number;
+  skipped: number;
+  expired_marked: number;
+}

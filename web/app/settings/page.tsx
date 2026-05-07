@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { DesktopBYOKCard } from "@/components/desktop/DesktopBYOKCard";
 
 interface Prefs {
   digest_enabled: boolean;
@@ -56,6 +57,9 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-2xl">
       <h1 className="text-xl font-semibold">Settings</h1>
       {err && <p className="text-sm text-red-600">{err}</p>}
+
+      {/* Phase 10: shows only in desktop mode (Tauri-injected api_url) */}
+      <DesktopBYOKCard />
 
       <section className="bg-white border border-[var(--color-border)] rounded-lg p-6 space-y-4">
         <h2 className="font-semibold">Daily digest email</h2>
