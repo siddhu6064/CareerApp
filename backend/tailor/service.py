@@ -107,9 +107,21 @@ async def run_tailor(
     job: dict[str, Any],
     master: dict[str, Any],
     source: str = "app",
+    branding: dict[str, Any] | None = None,
+    quota_user_id: str | None = None,
 ) -> TailorResult:
-    # ── Gate: reset count if monthly window elapsed, then check limit ────
-    current_count = await storage.reset_tailor_count_if_due(user_id)
+    """Tailor a resume.
+
+    branding (Phase 9 white-label, Coach plan only):
+        {"logo_url": str | None, "brand_color": str | None}
+    quota_user_id:
+        When a coach tailors on behalf of a client, save the row under the
+        client's user_id but charge the coach's monthly quota. Defaults to
+        user_id (= client_id in coach flow, == user_id otherwise).
+    """
+    # ── Gate: count against the *quota_user* (coach when bulk-tailoring) ──
+    quota_uid = quota_user_id or user_id
+    current_count = await storage.reset_tailor_count_if_due(quota_uid)
     limit = TAILOR_LIMITS.get(user_plan, TAILOR_LIMITS["free"])
     if current_count >= limit:
         raise HTTPException(
@@ -130,6 +142,16 @@ async def run_tailor(
     # ── Render: HTML → PDF (with HTML fallback) ─────────────────────────
     contact_info = master.get("contact_info") or {}
     html_str = render_resume_html(contact_info, tailored)
+
+    # White-label injection (Phase 9). No-op when branding is None/empty.
+    if branding:
+        from backend.coach import inject_branding
+        html_str = inject_branding(
+            html_str,
+            logo_url=branding.get("logo_url"),
+            brand_color=branding.get("brand_color"),
+        )
+
     pdf_bytes = html_to_pdf_bytes(html_str)
 
     extension = "pdf" if pdf_bytes else "html"
@@ -160,7 +182,7 @@ async def run_tailor(
         "source": source,
         "sonnet_method": meta["method"],
     })
-    new_count = await storage.increment_tailor_count(user_id)
+    new_count = await storage.increment_tailor_count(quota_uid)
 
     log.info(
         "tailor user=%s job=%s ats=%d method=%s tokens=%d/%d",

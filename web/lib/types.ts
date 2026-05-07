@@ -249,3 +249,53 @@ export interface AnalyticsDigest {
   click_through_rate: number;
   conversion_rate: number;
 }
+
+// ── Phase 9: Coach Tier ───────────────────────────────────────────────
+export type CoachClientStatus = "pending" | "active" | "inactive";
+
+export interface CoachClient {
+  id: string;
+  coach_id: string;
+  client_id: string | null;
+  invited_email: string;
+  invited_name: string | null;
+  status: CoachClientStatus;
+  invite_token?: string | null;  // only present right after invite creation
+  invited_at: string;
+  accepted_at: string | null;
+  notes: string | null;
+  client_email_actual: string | null;
+  client_name_actual: string | null;
+  // Summary fields (present on /api/coach/clients list)
+  applied_count?: number | null;
+  response_rate?: number | null;
+  last_activity_at?: string | null;
+}
+
+export interface CoachBranding {
+  logo_path: string | null;
+  logo_url: string | null;
+  brand_color: string | null;
+}
+
+export interface BulkTailorResult {
+  coach_client_id: string;
+  client_id: string | null;
+  ok: boolean;
+  tailored_id: string | null;
+  ats_score: number | null;
+  error: string | null;
+}
+
+export interface BulkTailorResponse {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: BulkTailorResult[];
+}
+
+export interface CoachClientAnalytics {
+  summary: AnalyticsSummary;
+  funnel: AnalyticsFunnel;
+  window_days: number;
+}

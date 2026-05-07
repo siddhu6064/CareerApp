@@ -287,6 +287,46 @@ CREATE TABLE IF NOT EXISTS interview_prep (
 CREATE INDEX IF NOT EXISTS idx_interview_prep_user_job ON interview_prep(user_id, job_id, created_at DESC);
 
 -- ══════════════════════════════════════════════════════════════════════
+-- Phase 9 — Coach Tier (multi-client, bulk tailor, white-label PDF)
+-- ══════════════════════════════════════════════════════════════════════
+INSERT OR IGNORE INTO schema_version (version) VALUES (6);
+
+-- ── coach_clients ────────────────────────────────────────────────────
+-- One row per coach↔client relationship. A user can be both a coach
+-- (multiple rows where coach_id = me) and a client (rows where client_id
+-- = me). status='pending' until invite accepted, then 'active'.
+CREATE TABLE IF NOT EXISTS coach_clients (
+    id              TEXT PRIMARY KEY,
+    coach_id        TEXT NOT NULL,
+    client_id       TEXT,                          -- NULL until invitee accepts
+    invited_email   TEXT NOT NULL,
+    invited_name    TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending', -- pending|active|inactive
+    invite_token    TEXT NOT NULL UNIQUE,
+    invited_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    accepted_at     TEXT,
+    notes           TEXT,
+    FOREIGN KEY (coach_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- One pending invite per (coach, email) — prevents duplicate sends
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_pending
+    ON coach_clients(coach_id, invited_email)
+    WHERE status = 'pending';
+
+-- One active link per (coach, client) — prevents two active rows
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_clients_active
+    ON coach_clients(coach_id, client_id)
+    WHERE status = 'active' AND client_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_coach_clients_coach  ON coach_clients(coach_id, status);
+CREATE INDEX IF NOT EXISTS idx_coach_clients_client ON coach_clients(client_id);
+
+-- ── User branding columns (white-label PDF) ──────────────────────────
+-- ALTER added inline by the migration runner — see sqlite_adapter._migrate.
+
+-- ══════════════════════════════════════════════════════════════════════
 -- Phase 6 — Daily digest email + push notifications
 -- ══════════════════════════════════════════════════════════════════════
 

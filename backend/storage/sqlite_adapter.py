@@ -149,6 +149,19 @@ class SqliteAdapter(StorageAdapter):
         assert self._db is not None
         sql = _SCHEMA_PATH.read_text()
         await self._db.executescript(sql)
+
+        # ── ALTERs for new user columns (forward-only migrations) ──
+        # SQLite's ALTER TABLE ... ADD COLUMN can't be IF NOT EXISTS, so
+        # introspect first.
+        async with self._db.execute("PRAGMA table_info(users)") as cur:
+            cols = {row["name"] async for row in cur}
+        for name, ddl in (
+            ("coach_logo_path", "ALTER TABLE users ADD COLUMN coach_logo_path TEXT"),
+            ("coach_brand_color", "ALTER TABLE users ADD COLUMN coach_brand_color TEXT"),
+        ):
+            if name not in cols:
+                await self._db.execute(ddl)
+
         await self._db.commit()
 
     # ── Users ────────────────────────────────────────────────────────────
@@ -1314,3 +1327,221 @@ class SqliteAdapter(StorageAdapter):
         async with self._db.execute(sql, params) as cur:
             row = await cur.fetchone()
         return int(row["n"]) if row else 0
+
+    # ══════════════════════════════════════════════════════════════════
+    # Phase 9 — Coach Tier
+    # ══════════════════════════════════════════════════════════════════
+    COACH_CLIENT_CAP = 10  # Coach plan = 10 clients per system prompt
+
+    async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM users WHERE email = ? LIMIT 1", (email,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def add_coach_client(
+        self,
+        coach_id: str,
+        *,
+        invited_email: str,
+        invited_name: str | None,
+        invite_token: str,
+    ) -> str:
+        assert self._db is not None
+        import uuid
+
+        # 10-client cap (active only — pending invites don't count)
+        n_active = await self.count_coach_clients(coach_id, status="active")
+        if n_active >= self.COACH_CLIENT_CAP:
+            raise ValueError(
+                f"Coach client cap reached ({n_active}/{self.COACH_CLIENT_CAP})"
+            )
+
+        # Reject duplicate pending or active for same (coach, email)
+        async with self._db.execute(
+            """
+            SELECT id, status FROM coach_clients
+            WHERE coach_id = ? AND invited_email = ?
+              AND status IN ('pending', 'active')
+            LIMIT 1
+            """,
+            (coach_id, invited_email),
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            raise ValueError(
+                f"Already have a {existing['status']} invite for {invited_email}"
+            )
+
+        cid = f"cc_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO coach_clients
+                (id, coach_id, invited_email, invited_name, invite_token, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+            """,
+            (cid, coach_id, invited_email, invited_name, invite_token),
+        )
+        await self._db.commit()
+        return cid
+
+    async def get_coach_client(
+        self, coach_client_id: str, coach_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            """
+            SELECT cc.*, u.email AS client_email_actual
+            FROM coach_clients cc
+            LEFT JOIN users u ON u.id = cc.client_id
+            WHERE cc.id = ? AND cc.coach_id = ?
+            """,
+            (coach_client_id, coach_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["client_name_actual"] = None  # users table has no name column yet
+        return d
+
+    async def get_coach_client_by_token(
+        self, invite_token: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM coach_clients WHERE invite_token = ? LIMIT 1",
+            (invite_token,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_coach_clients(
+        self, coach_id: str, *, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        sql = (
+            "SELECT cc.*, u.email AS client_email_actual "
+            "FROM coach_clients cc LEFT JOIN users u ON u.id = cc.client_id "
+            "WHERE cc.coach_id = ?"
+        )
+        params: list[Any] = [coach_id]
+        if status:
+            sql += " AND cc.status = ?"
+            params.append(status)
+        sql += " ORDER BY cc.invited_at DESC"
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["client_name_actual"] = None
+            out.append(d)
+        return out
+
+    async def count_coach_clients(
+        self, coach_id: str, *, status: str = "active"
+    ) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM coach_clients "
+            "WHERE coach_id = ? AND status = ?",
+            (coach_id, status),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+
+    async def accept_coach_invite(
+        self, invite_token: str, accepting_user_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        existing = await self.get_coach_client_by_token(invite_token)
+        if existing is None or existing["status"] != "pending":
+            return None
+        if existing["coach_id"] == accepting_user_id:
+            return None  # can't be your own client
+
+        now = _utc_now()
+        await self._db.execute(
+            """
+            UPDATE coach_clients
+            SET status = 'active', client_id = ?, accepted_at = ?
+            WHERE id = ?
+            """,
+            (accepting_user_id, now, existing["id"]),
+        )
+        await self._db.commit()
+        return await self.get_coach_client(existing["id"], existing["coach_id"])
+
+    async def remove_coach_client(
+        self, coach_client_id: str, coach_id: str
+    ) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM coach_clients WHERE id = ? AND coach_id = ?",
+            (coach_client_id, coach_id),
+        )
+        await self._db.commit()
+        return (cur.rowcount or 0) > 0
+
+    async def update_coach_client(
+        self, coach_client_id: str, coach_id: str, patch: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        existing = await self.get_coach_client(coach_client_id, coach_id)
+        if existing is None:
+            return None
+
+        sets: list[str] = []
+        params: list[Any] = []
+        for k in ("notes", "invited_name", "status"):
+            if k in patch:
+                sets.append(f"{k} = ?")
+                params.append(patch[k])
+        if not sets:
+            return existing
+        params.extend([coach_client_id, coach_id])
+        await self._db.execute(
+            f"UPDATE coach_clients SET {', '.join(sets)} WHERE id = ? AND coach_id = ?",
+            params,
+        )
+        await self._db.commit()
+        return await self.get_coach_client(coach_client_id, coach_id)
+
+    async def update_coach_branding(
+        self, coach_id: str, *, logo_path: str | None, brand_color: str | None
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        sets: list[str] = []
+        params: list[Any] = []
+        # Allow explicit None to clear; only skip the field if NOT in kwargs
+        # Caller signals "leave alone" by passing existing value back in.
+        sets.append("coach_logo_path = ?")
+        params.append(logo_path)
+        sets.append("coach_brand_color = ?")
+        params.append(brand_color)
+        sets.append("updated_at = ?")
+        params.append(_utc_now())
+        params.append(coach_id)
+        await self._db.execute(
+            f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT id, email, plan, coach_logo_path, coach_brand_color FROM users WHERE id = ?",
+            (coach_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else {}
+
+    async def get_coach_branding(self, coach_id: str) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT coach_logo_path, coach_brand_color FROM users WHERE id = ?",
+            (coach_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None

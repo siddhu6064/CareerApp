@@ -118,3 +118,16 @@ class SupabaseAdapter(StorageAdapter):
     async def tailored_resumes_by_ids(self, user_id, ids): raise NotImplementedError
     async def digest_log_since(self, user_id, **kwargs): raise NotImplementedError
     async def count_tailored_resumes_since(self, user_id, **kwargs): raise NotImplementedError
+
+    # ── Phase 9 coach stubs ─────────────────────────────────────────────
+    async def get_user_by_email(self, email): raise NotImplementedError
+    async def add_coach_client(self, coach_id, **kwargs): raise NotImplementedError
+    async def get_coach_client(self, coach_client_id, coach_id): raise NotImplementedError
+    async def get_coach_client_by_token(self, invite_token): raise NotImplementedError
+    async def list_coach_clients(self, coach_id, **kwargs): raise NotImplementedError
+    async def count_coach_clients(self, coach_id, **kwargs): raise NotImplementedError
+    async def accept_coach_invite(self, invite_token, accepting_user_id): raise NotImplementedError
+    async def remove_coach_client(self, coach_client_id, coach_id): raise NotImplementedError
+    async def update_coach_client(self, coach_client_id, coach_id, patch): raise NotImplementedError
+    async def update_coach_branding(self, coach_id, **kwargs): raise NotImplementedError
+    async def get_coach_branding(self, coach_id): raise NotImplementedError

@@ -1,4 +1,4 @@
-# [AppName] — Phases 1–6 + 8
+# [AppName] — Phases 1–6 + 8 + 9
 
 Multi-tenant SaaS job-search platform with web + mobile clients, Render-ready
 backend, daily digest email, push notifications, and GitHub Actions cron.
@@ -14,21 +14,21 @@ selects storage and auth strategy.
 | 1 — Foundation                  | ✅ done | StorageAdapter pattern, mode-aware config, local-token auth |
 | 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs, JustHireMe quality_gate + tagger, dedup, TTL cache |
 | 3 — Resume + Tracker            | ✅ done | Master resume parser (stub + Sonnet ready), 8-stage tracker, sub-resources |
-| 4a — Web UI                     | ✅ done | Next.js 15, 10 routes (incl. /analytics), kanban, settings panel |
+| 4a — Web UI                     | ✅ done | Next.js 15, 14 routes (incl. /coach/*), kanban, settings panel |
 | 4b — Mobile                     | ✅ done | Expo SDK 52, Router 4, 5 tabs (incl. analytics), push registration on auth |
 | 5 — AI Tailor + PDF             | ✅ done | Sonnet structured output, WeasyPrint, Free 3 / Pro 100 / Coach 100 / Desktop ∞ |
 | 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GitHub Actions cron 06:00/06:15/06:30 UTC |
 | 7 — Billing                     | ⏳ next  | LemonSqueezy webhooks |
 | 8 — Pro features                | ✅ done | Cover letters + interview prep + analytics dashboard. App Store config ready (`mobile/SUBMIT.md`); user runs `eas submit` themselves |
-| 9 — Coach features              | ⏳ later | Multi-client, white-label PDFs |
+| 9 — Coach features              | ✅ done | 14 endpoints, multi-client (10 cap), bulk tailor (parallel `asyncio.gather`), white-label PDF (logo + brand color), invite acceptance flow. Coach plan ($49/mo) gated server-side. |
 | 10 — Desktop variant            | ⏳ later | Tauri shell |
 
 ## Test status
 
-- **102 backend tests passing** (`pytest backend/tests/`)
+- **141 backend tests passing** (`pytest backend/tests/`)
 - Web typecheck + production build clean (Next 15.5.16)
 - Mobile TypeScript clean (Expo SDK 52)
-- 43 backend endpoints (was 39 — +4 analytics)
+- 57 backend endpoints (was 43 — +14 coach)
 
 ## Repo layout
 

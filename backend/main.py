@@ -1772,3 +1772,587 @@ async def analytics_digest(
         window=AnalyticsWindow(days=days, since_iso=since, plan=plan),
         **metrics,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 9 — Coach Tier (multi-client, bulk tailor, white-label PDF)
+# ══════════════════════════════════════════════════════════════════════
+import asyncio
+
+from backend.coach import (
+    inject_branding,
+    is_valid_email,
+    is_valid_hex_color,
+    new_invite_token,
+    normalize_email,
+    normalize_hex_color,
+    summarize_bulk_results,
+)
+from backend.notifications.email import send_email
+
+
+# ── Coach gate ───────────────────────────────────────────────────────
+COACH_PLANS = {"coach", "desktop"}
+
+
+async def _require_coach(storage: StorageAdapter, user_id: str) -> str:
+    user = await storage.get_user(user_id)
+    plan = user["plan"] if user else "free"
+    if plan not in COACH_PLANS:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Coach tier required. Upgrade to Coach ($49/mo) for "
+                "multi-client tracking, bulk tailor, and white-label PDFs."
+            ),
+        )
+    return plan
+
+
+# ── Models ──────────────────────────────────────────────────────────
+class InviteClientRequest(StrictBody):
+    email: str
+    name: str | None = None
+    notes: str | None = None
+
+
+class CoachClientOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    coach_id: str
+    client_id: str | None = None
+    invited_email: str
+    invited_name: str | None = None
+    status: str
+    invite_token: str | None = None  # only returned to the inviting coach
+    invited_at: str
+    accepted_at: str | None = None
+    notes: str | None = None
+    # Denormalized so UI doesn't need a second hop
+    client_email_actual: str | None = None
+    client_name_actual: str | None = None
+    # Summary fields populated by list endpoint (None on per-id GET)
+    applied_count: int | None = None
+    response_rate: float | None = None
+    last_activity_at: str | None = None
+
+
+class CoachClientPatch(StrictBody):
+    notes: str | None = None
+    invited_name: str | None = None
+    status: str | None = None  # 'inactive' to pause
+
+
+class AcceptInviteRequest(StrictBody):
+    invite_token: str
+
+
+class CoachTailorRequest(StrictBody):
+    job_id: str
+
+
+class BulkTailorRequest(StrictBody):
+    coach_client_ids: list[str] = Field(..., min_length=1, max_length=10)
+    job_id: str
+
+
+class BulkTailorResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    coach_client_id: str
+    client_id: str | None
+    ok: bool
+    tailored_id: str | None = None
+    ats_score: int | None = None
+    error: str | None = None
+
+
+class BulkTailorResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    total: int
+    succeeded: int
+    failed: int
+    results: list[BulkTailorResult]
+
+
+class CoachBrandingPut(StrictBody):
+    logo_path: str | None = None  # storage key from prior upload
+    brand_color: str | None = None  # '#rrggbb'
+
+
+class CoachBrandingOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    logo_path: str | None = None
+    logo_url: str | None = None  # signed URL (TTL 1h)
+    brand_color: str | None = None
+
+
+# ── Helpers ─────────────────────────────────────────────────────────
+def _coach_invite_link(invite_token: str) -> str:
+    """Public URL the invitee clicks. Web app owns the /coach/accept route."""
+    base = os.getenv("APPNAME_WEB_URL", "http://127.0.0.1:3000")
+    return f"{base.rstrip('/')}/coach/accept/{invite_token}"
+
+
+def _render_invite_email(
+    *,
+    coach_name: str,
+    coach_email: str,
+    invitee_email: str,
+    invitee_name: str | None,
+    invite_url: str,
+) -> tuple[str, str]:
+    """Returns (html, text) bodies for the invite email."""
+    greet = f"Hi {invitee_name}," if invitee_name else "Hi,"
+    text = (
+        f"{greet}\n\n"
+        f"{coach_name} ({coach_email}) has invited you to be a client on "
+        f"[AppName]. They'll be able to view your application tracker and "
+        f"tailor resumes for you.\n\n"
+        f"Accept the invite: {invite_url}\n\n"
+        f"If you weren't expecting this, ignore the message. The link expires "
+        f"in 14 days.\n"
+    )
+    html = (
+        f'<div style="font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #111827;">'
+        f'<p>{greet}</p>'
+        f'<p><strong>{html_escape(coach_name)}</strong> '
+        f'(<a href="mailto:{html_escape(coach_email)}">{html_escape(coach_email)}</a>) '
+        f'has invited you to be a client on <strong>[AppName]</strong>. '
+        f'They\'ll be able to view your application tracker and tailor resumes for you.</p>'
+        f'<p style="margin: 20px 0;">'
+        f'<a href="{invite_url}" '
+        f'style="display: inline-block; padding: 10px 20px; background: #5B21B6; '
+        f'color: #fff; text-decoration: none; border-radius: 6px;">Accept invite</a></p>'
+        f'<p style="font-size: 12px; color: #6b7280;">'
+        f'If you weren\'t expecting this, ignore the message. '
+        f'The link expires in 14 days.</p></div>'
+    )
+    return html, text
+
+
+def html_escape(s: str) -> str:
+    import html as _h
+    return _h.escape(s or "")
+
+
+async def _summary_for_client(
+    storage: StorageAdapter, client_id: str
+) -> dict[str, Any]:
+    """Lightweight tracker summary for the coach dashboard list."""
+    from backend.analytics import summary_metrics
+    since = _analytics_since_iso(90)
+    apps = await storage.list_applications_since(client_id, since_iso=since)
+    metrics = summary_metrics(apps)
+    last_at = max((a.get("updated_at") or "" for a in apps), default=None)
+    return {
+        "applied_count": metrics["applied_count"],
+        "response_rate": metrics["response_rate"],
+        "last_activity_at": last_at,
+    }
+
+
+def _coach_client_to_out(
+    row: dict[str, Any], *, summary: dict[str, Any] | None = None,
+    expose_token: bool = False,
+) -> CoachClientOut:
+    payload = dict(row)
+    if not expose_token:
+        payload.pop("invite_token", None)
+    if summary:
+        payload.update(summary)
+    return CoachClientOut(**payload)
+
+
+# ══════════════════════════════════════════════════════════════════
+# Endpoints
+# ══════════════════════════════════════════════════════════════════
+
+@app.post(
+    "/api/coach/clients",
+    response_model=CoachClientOut,
+    status_code=201,
+)
+async def coach_invite_client(
+    body: InviteClientRequest,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachClientOut:
+    """Coach invites a client by email. Sends an email with the accept link."""
+    await _require_coach(storage, user_id)
+    email = normalize_email(body.email)
+    if not is_valid_email(email):
+        raise HTTPException(status_code=400, detail="invalid email")
+
+    token = new_invite_token()
+    try:
+        cid = await storage.add_coach_client(
+            user_id,
+            invited_email=email,
+            invited_name=body.name,
+            invite_token=token,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Save notes if provided (the add_coach_client method doesn't take notes).
+    if body.notes:
+        await storage.update_coach_client(cid, user_id, {"notes": body.notes})
+
+    # Best-effort: email the invitee. Don't fail the API if Resend hiccups.
+    coach_user = await storage.get_user(user_id) or {}
+    invite_url = _coach_invite_link(token)
+    html_body, text_body = _render_invite_email(
+        coach_name=(coach_user.get("email") or "Your coach"),
+        coach_email=coach_user.get("email") or "",
+        invitee_email=email,
+        invitee_name=body.name,
+        invite_url=invite_url,
+    )
+    try:
+        await send_email(
+            to=email,
+            subject=f"Invitation from {coach_user.get('email') or 'your coach'}",
+            html_body=html_body,
+            text_body=text_body,
+        )
+    except Exception as exc:  # noqa: BLE001 — log + continue; invite still valid
+        log.warning("coach invite email send failed: %s", exc)
+
+    row = await storage.get_coach_client(cid, user_id)
+    assert row is not None
+    return _coach_client_to_out(row, expose_token=True)
+
+
+@app.get("/api/coach/clients", response_model=list[CoachClientOut])
+async def coach_list_clients(
+    status_filter: str | None = Query(default=None, alias="status"),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> list[CoachClientOut]:
+    await _require_coach(storage, user_id)
+    rows = await storage.list_coach_clients(user_id, status=status_filter)
+    out: list[CoachClientOut] = []
+    for r in rows:
+        summary = None
+        if r.get("client_id"):
+            summary = await _summary_for_client(storage, r["client_id"])
+        out.append(_coach_client_to_out(r, summary=summary))
+    return out
+
+
+@app.get("/api/coach/clients/{coach_client_id}", response_model=CoachClientOut)
+async def coach_get_client(
+    coach_client_id: str,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachClientOut:
+    await _require_coach(storage, user_id)
+    row = await storage.get_coach_client(coach_client_id, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="client not found")
+    summary = (
+        await _summary_for_client(storage, row["client_id"])
+        if row.get("client_id") else None
+    )
+    return _coach_client_to_out(row, summary=summary)
+
+
+@app.patch("/api/coach/clients/{coach_client_id}", response_model=CoachClientOut)
+async def coach_update_client(
+    coach_client_id: str,
+    body: CoachClientPatch,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachClientOut:
+    await _require_coach(storage, user_id)
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "status" in patch and patch["status"] not in ("active", "inactive"):
+        raise HTTPException(status_code=400, detail="status must be active|inactive")
+    row = await storage.update_coach_client(coach_client_id, user_id, patch)
+    if row is None:
+        raise HTTPException(status_code=404, detail="client not found")
+    return _coach_client_to_out(row)
+
+
+@app.delete("/api/coach/clients/{coach_client_id}", status_code=204)
+async def coach_remove_client(
+    coach_client_id: str,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> None:
+    await _require_coach(storage, user_id)
+    ok = await storage.remove_coach_client(coach_client_id, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="client not found")
+
+
+# ── Invite acceptance (no auth — token-protected) ────────────────────
+@app.post("/api/coach/accept-invite", response_model=CoachClientOut)
+async def coach_accept_invite(
+    body: AcceptInviteRequest,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachClientOut:
+    """The invitee (now a logged-in user) accepts a pending invite by token.
+    Bound to whoever is logged in — they become the client_id."""
+    row = await storage.accept_coach_invite(body.invite_token, user_id)
+    if row is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invite is invalid, already used, expired, or yours",
+        )
+    return _coach_client_to_out(row)
+
+
+@app.get("/api/coach/invite/{invite_token}", response_model=CoachClientOut)
+async def coach_invite_lookup(
+    invite_token: str,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachClientOut:
+    """Used by the web /coach/accept/[token] page to preview the invite
+    (so the user knows who's inviting them) before accepting."""
+    row = await storage.get_coach_client_by_token(invite_token)
+    if row is None or row["status"] != "pending":
+        raise HTTPException(status_code=404, detail="invite not found or already used")
+    coach = await storage.get_user(row["coach_id"])
+    if coach:
+        row["client_email_actual"] = coach.get("email")  # repurpose for display
+        row["client_name_actual"] = None
+    return _coach_client_to_out(row)
+
+
+# ── Read-only client tracker / analytics ─────────────────────────────
+@app.get("/api/coach/clients/{coach_client_id}/tracker")
+async def coach_client_tracker(
+    coach_client_id: str,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> list[dict[str, Any]]:
+    await _require_coach(storage, user_id)
+    row = await storage.get_coach_client(coach_client_id, user_id)
+    if row is None or row["status"] != "active" or not row.get("client_id"):
+        raise HTTPException(status_code=404, detail="active client not found")
+    apps = await storage.list_applications(row["client_id"])
+    return apps
+
+
+@app.get("/api/coach/clients/{coach_client_id}/analytics")
+async def coach_client_analytics(
+    coach_client_id: str,
+    days: int = Query(default=90, ge=1, le=365),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, Any]:
+    await _require_coach(storage, user_id)
+    row = await storage.get_coach_client(coach_client_id, user_id)
+    if row is None or row["status"] != "active" or not row.get("client_id"):
+        raise HTTPException(status_code=404, detail="active client not found")
+    from backend.analytics import (
+        funnel_counts as _fn,
+        summary_metrics as _sm,
+    )
+    since = _analytics_since_iso(days)
+    apps = await storage.list_applications_since(row["client_id"], since_iso=since)
+    return {
+        "summary": _sm(apps),
+        "funnel": _fn(apps),
+        "window_days": days,
+    }
+
+
+@app.get("/api/coach/clients/{coach_client_id}/tailored")
+async def coach_client_tailored(
+    coach_client_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> list[dict[str, Any]]:
+    await _require_coach(storage, user_id)
+    row = await storage.get_coach_client(coach_client_id, user_id)
+    if row is None or row["status"] != "active" or not row.get("client_id"):
+        raise HTTPException(status_code=404, detail="active client not found")
+    return await storage.list_tailored_resumes(row["client_id"], limit=limit)
+
+
+# ── Tailor on behalf of a client ─────────────────────────────────────
+async def _tailor_for_client(
+    *,
+    storage: StorageAdapter,
+    coach_id: str,
+    coach_plan: str,
+    coach_client_id: str,
+    job_id: str,
+    branding: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Shared core for both single + bulk tailor. Returns BulkTailorResult shape."""
+    row = await storage.get_coach_client(coach_client_id, coach_id)
+    if row is None or row["status"] != "active" or not row.get("client_id"):
+        return {
+            "coach_client_id": coach_client_id, "client_id": None, "ok": False,
+            "error": "active client not found",
+        }
+    client_id = row["client_id"]
+    job = await storage.get_job(job_id)
+    if job is None:
+        return {
+            "coach_client_id": coach_client_id, "client_id": client_id, "ok": False,
+            "error": "job not found",
+        }
+    master = await storage.get_active_master_resume(client_id)
+    if master is None:
+        return {
+            "coach_client_id": coach_client_id, "client_id": client_id, "ok": False,
+            "error": "client has no master resume",
+        }
+
+    fs = get_file_storage()
+    try:
+        result = await run_tailor(
+            storage=storage,
+            file_storage=fs,
+            user_id=client_id,           # row saved under client
+            user_plan=coach_plan,        # use coach's tier limits
+            job=job,
+            master=master,
+            source="app",
+            branding=branding,
+            quota_user_id=coach_id,      # charge against coach's quota
+        )
+    except HTTPException as e:
+        return {
+            "coach_client_id": coach_client_id, "client_id": client_id, "ok": False,
+            "error": str(e.detail),
+        }
+    except Exception as e:  # noqa: BLE001
+        log.exception("coach tailor failed for client=%s job=%s", client_id, job_id)
+        return {
+            "coach_client_id": coach_client_id, "client_id": client_id, "ok": False,
+            "error": f"unexpected error: {e}",
+        }
+    return {
+        "coach_client_id": coach_client_id, "client_id": client_id, "ok": True,
+        "tailored_id": result.id, "ats_score": result.ats_score,
+    }
+
+
+@app.post("/api/coach/clients/{coach_client_id}/tailor")
+async def coach_tailor_for_client(
+    coach_client_id: str,
+    body: CoachTailorRequest,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, Any]:
+    plan = await _require_coach(storage, user_id)
+    branding = await _get_active_branding(storage, user_id)
+    res = await _tailor_for_client(
+        storage=storage,
+        coach_id=user_id,
+        coach_plan=plan,
+        coach_client_id=coach_client_id,
+        job_id=body.job_id,
+        branding=branding,
+    )
+    if not res["ok"]:
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+@app.post("/api/coach/bulk-tailor", response_model=BulkTailorResponse)
+async def coach_bulk_tailor(
+    body: BulkTailorRequest,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> BulkTailorResponse:
+    plan = await _require_coach(storage, user_id)
+    if len(set(body.coach_client_ids)) != len(body.coach_client_ids):
+        raise HTTPException(status_code=400, detail="duplicate coach_client_ids")
+
+    branding = await _get_active_branding(storage, user_id)
+
+    # Parallel fan-out — each call is ~3-5s of Sonnet latency. Sequential would
+    # blow past the Render p95 target.
+    tasks = [
+        _tailor_for_client(
+            storage=storage,
+            coach_id=user_id,
+            coach_plan=plan,
+            coach_client_id=ccid,
+            job_id=body.job_id,
+            branding=branding,
+        )
+        for ccid in body.coach_client_ids
+    ]
+    results = await asyncio.gather(*tasks)
+    return BulkTailorResponse(**summarize_bulk_results(results))
+
+
+# ── Branding (white-label PDF) ───────────────────────────────────────
+async def _get_active_branding(
+    storage: StorageAdapter, coach_id: str,
+) -> dict[str, Any] | None:
+    row = await storage.get_coach_branding(coach_id)
+    if not row:
+        return None
+    logo_path = row.get("coach_logo_path")
+    color = row.get("coach_brand_color")
+    if not logo_path and not color:
+        return None
+    fs = get_file_storage()
+    logo_url = await fs.get_signed_url(logo_path, ttl_seconds=3600) if logo_path else None
+    return {"logo_url": logo_url, "brand_color": color}
+
+
+@app.get("/api/coach/branding", response_model=CoachBrandingOut)
+async def coach_get_branding(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachBrandingOut:
+    await _require_coach(storage, user_id)
+    row = await storage.get_coach_branding(user_id) or {}
+    logo_path = row.get("coach_logo_path")
+    fs = get_file_storage()
+    logo_url = await fs.get_signed_url(logo_path, ttl_seconds=3600) if logo_path else None
+    return CoachBrandingOut(
+        logo_path=logo_path,
+        logo_url=logo_url,
+        brand_color=row.get("coach_brand_color"),
+    )
+
+
+@app.put("/api/coach/branding", response_model=CoachBrandingOut)
+async def coach_put_branding(
+    body: CoachBrandingPut,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CoachBrandingOut:
+    await _require_coach(storage, user_id)
+    color = body.brand_color
+    if color is not None and color != "" and not is_valid_hex_color(color):
+        raise HTTPException(status_code=400, detail="brand_color must be #rrggbb hex")
+    color_norm = normalize_hex_color(color) if color else None
+    await storage.update_coach_branding(
+        user_id, logo_path=body.logo_path, brand_color=color_norm,
+    )
+    return await coach_get_branding(user_id=user_id, storage=storage)
+
+
+@app.post("/api/coach/branding/logo", status_code=201)
+async def coach_upload_branding_logo(
+    file: UploadFile = File(...),
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, Any]:
+    """Upload a coach logo image. Returns the storage key the caller uses
+    in PUT /api/coach/branding."""
+    await _require_coach(storage, user_id)
+    if file.content_type not in ("image/png", "image/jpeg", "image/svg+xml"):
+        raise HTTPException(status_code=400, detail="logo must be PNG, JPEG, or SVG")
+    contents = await file.read()
+    if len(contents) > 1_000_000:  # 1 MB cap
+        raise HTTPException(status_code=413, detail="logo file too large (1 MB max)")
+    ext = (file.content_type or "").split("/")[-1] or "png"
+    fs = get_file_storage()
+    key = make_resume_key(user_id, suffix=f"coach-logo.{ext}")
+    saved = await fs.save(contents, key=key, content_type=file.content_type or "image/png")
+    return {"logo_path": saved}

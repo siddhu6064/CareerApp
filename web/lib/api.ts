@@ -10,6 +10,10 @@ import type {
   AnalyticsDigest,
   AnalyticsFunnel,
   AnalyticsSummary,
+  BulkTailorResponse,
+  CoachBranding,
+  CoachClient,
+  CoachClientAnalytics,
   Interview,
   Job,
   JobsPage,
@@ -249,6 +253,65 @@ export const api = {
     request<AnalyticsAtsCorrelation>(`/api/analytics/ats-correlation?days=${days}`),
   analyticsDigest: (days = 90) =>
     request<AnalyticsDigest>(`/api/analytics/digest?days=${days}`),
+
+  // ── Phase 9: Coach Tier (Coach plan only — 402 for everyone else) ──
+  coachListClients: (status?: "pending" | "active" | "inactive") => {
+    const q = status ? `?status=${status}` : "";
+    return request<CoachClient[]>(`/api/coach/clients${q}`);
+  },
+  coachGetClient: (id: string) =>
+    request<CoachClient>(`/api/coach/clients/${id}`),
+  coachInviteClient: (body: { email: string; name?: string; notes?: string }) =>
+    request<CoachClient>("/api/coach/clients", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  coachUpdateClient: (id: string, patch: Partial<{
+    notes: string; invited_name: string; status: "active" | "inactive";
+  }>) =>
+    request<CoachClient>(`/api/coach/clients/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  coachRemoveClient: (id: string) =>
+    request<void>(`/api/coach/clients/${id}`, { method: "DELETE" }),
+  coachLookupInvite: (token: string) =>
+    request<CoachClient>(`/api/coach/invite/${encodeURIComponent(token)}`),
+  coachAcceptInvite: (invite_token: string) =>
+    request<CoachClient>("/api/coach/accept-invite", {
+      method: "POST",
+      body: JSON.stringify({ invite_token }),
+    }),
+  coachClientTracker: (id: string) =>
+    request<Application[]>(`/api/coach/clients/${id}/tracker`),
+  coachClientAnalytics: (id: string, days = 90) =>
+    request<CoachClientAnalytics>(`/api/coach/clients/${id}/analytics?days=${days}`),
+  coachClientTailored: (id: string, limit = 50) =>
+    request<TailoredResume[]>(`/api/coach/clients/${id}/tailored?limit=${limit}`),
+  coachTailorForClient: (id: string, job_id: string) =>
+    request<{ ok: boolean; tailored_id: string; ats_score: number }>(
+      `/api/coach/clients/${id}/tailor`,
+      { method: "POST", body: JSON.stringify({ job_id }) },
+    ),
+  coachBulkTailor: (coach_client_ids: string[], job_id: string) =>
+    request<BulkTailorResponse>("/api/coach/bulk-tailor", {
+      method: "POST",
+      body: JSON.stringify({ coach_client_ids, job_id }),
+    }),
+  coachGetBranding: () => request<CoachBranding>("/api/coach/branding"),
+  coachPutBranding: (body: Partial<{ logo_path: string | null; brand_color: string | null }>) =>
+    request<CoachBranding>("/api/coach/branding", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  coachUploadLogo: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return request<{ logo_path: string }>("/api/coach/branding/logo", {
+      method: "POST",
+      body: fd,
+    });
+  },
 };
 
 export { ApiError };

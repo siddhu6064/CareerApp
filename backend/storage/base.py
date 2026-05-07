@@ -337,3 +337,75 @@ class StorageAdapter(ABC):
     ) -> int:
         """Count tailored resumes for user, optionally filtered by source
         ('app' | 'digest'). Powers digest tailor_conversions metric."""
+
+    # ── Phase 9: Coach tier (multi-client, white-label PDF) ─────────────
+    @abstractmethod
+    async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        """Email lookup for invite-acceptance. Returns None if no such user."""
+
+    @abstractmethod
+    async def add_coach_client(
+        self,
+        coach_id: str,
+        *,
+        invited_email: str,
+        invited_name: str | None,
+        invite_token: str,
+    ) -> str:
+        """Create a pending coach↔client invite row. Returns coach_client id.
+        Raises ValueError if a pending or active invite already exists for
+        this (coach, email) pair, or if 10-client cap exceeded."""
+
+    @abstractmethod
+    async def get_coach_client(
+        self, coach_client_id: str, coach_id: str
+    ) -> dict[str, Any] | None:
+        """Fetch a single coach_clients row scoped to the coach (RLS sim)."""
+
+    @abstractmethod
+    async def get_coach_client_by_token(
+        self, invite_token: str
+    ) -> dict[str, Any] | None:
+        """Token-only lookup for invite acceptance. No auth required."""
+
+    @abstractmethod
+    async def list_coach_clients(
+        self, coach_id: str, *, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Coach's clients, with denormalized client email/name and status."""
+
+    @abstractmethod
+    async def count_coach_clients(
+        self, coach_id: str, *, status: str = "active"
+    ) -> int:
+        """Powers the 10-client cap."""
+
+    @abstractmethod
+    async def accept_coach_invite(
+        self, invite_token: str, accepting_user_id: str
+    ) -> dict[str, Any] | None:
+        """Flip pending → active and link client_id. Returns updated row, or
+        None if token is unknown / already accepted / belongs to a different
+        invitee."""
+
+    @abstractmethod
+    async def remove_coach_client(
+        self, coach_client_id: str, coach_id: str
+    ) -> bool:
+        """Hard-delete a coach↔client row. Returns True if deleted."""
+
+    @abstractmethod
+    async def update_coach_client(
+        self, coach_client_id: str, coach_id: str, patch: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Partial update (notes, status). Returns updated row or None."""
+
+    @abstractmethod
+    async def update_coach_branding(
+        self, coach_id: str, *, logo_path: str | None, brand_color: str | None
+    ) -> dict[str, Any]:
+        """Set white-label branding fields on a coach's user row."""
+
+    @abstractmethod
+    async def get_coach_branding(self, coach_id: str) -> dict[str, Any] | None:
+        """Returns {logo_path, brand_color} or None if coach has no row."""

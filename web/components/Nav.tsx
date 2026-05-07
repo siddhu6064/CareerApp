@@ -6,14 +6,15 @@ import { useEffect, useState } from "react";
 import { api, clearToken, getToken } from "@/lib/api";
 import { useStore } from "@/lib/store";
 
-const links = [
+const baseLinks = [
   { href: "/jobs", label: "Jobs" },
   { href: "/tracker", label: "Tracker" },
   { href: "/resume", label: "Resume" },
   { href: "/tailored", label: "Tailored" },
   { href: "/analytics", label: "Analytics" },
-  { href: "/settings", label: "Settings" },
 ];
+
+const COACH_PLANS = new Set(["coach", "desktop"]);
 
 export function Nav() {
   const path = usePathname();
@@ -47,20 +48,28 @@ export function Nav() {
         {token ? (
           <>
             <ul className="flex gap-4 flex-1">
-              {links.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    href={l.href}
-                    className={`px-2 py-1 rounded text-sm ${
-                      path?.startsWith(l.href)
-                        ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)] font-medium"
-                        : "text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]"
-                    }`}
-                  >
-                    {l.label}
-                  </Link>
-                </li>
-              ))}
+              {(() => {
+                const isCoach = !!quota && COACH_PLANS.has(quota.plan);
+                const links = [
+                  ...baseLinks,
+                  ...(isCoach ? [{ href: "/coach", label: "Coach" }] : []),
+                  { href: "/settings", label: "Settings" },
+                ];
+                return links.map((l) => (
+                  <li key={l.href}>
+                    <Link
+                      href={l.href}
+                      className={`px-2 py-1 rounded text-sm ${
+                        path?.startsWith(l.href)
+                          ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)] font-medium"
+                          : "text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]"
+                      }`}
+                    >
+                      {l.label}
+                    </Link>
+                  </li>
+                ));
+              })()}
             </ul>
             {quota && (
               <span className="text-xs text-[var(--color-ink-soft)]">
