@@ -15,6 +15,7 @@ import { ApiError } from "@/lib/api";
 import { mmkv, MMKV_KEYS } from "@/lib/mmkv";
 import type { InterviewPrepOut } from "@/lib/types";
 import { colors, fontSize, radius, space } from "@/lib/theme";
+import { UpgradeSheet } from "@/components/UpgradeSheet";
 
 const PREP_KEY = (jobId: string) => `${MMKV_KEYS.INTERVIEW_PREP_PREFIX}${jobId}`;
 
@@ -95,8 +96,9 @@ export default function InterviewPrepScreen() {
           <Text style={s.gateIcon}>🔒</Text>
           <Text style={s.gateTitle}>Pro feature</Text>
           <Text style={s.gateSub}>
-            Interview prep questions are available on the Pro plan ($19/mo).
+            Interview prep questions are available on the Pro plan.
           </Text>
+          <UpgradeSheet visible={isProGated} onClose={() => setProGated(false)} highlight="pro" />
         </View>
       </>
     );

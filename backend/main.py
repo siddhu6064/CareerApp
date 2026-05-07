@@ -1027,6 +1027,192 @@ async def get_tailor_quota(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Phase 7 — Billing (LemonSqueezy)
+# ══════════════════════════════════════════════════════════════════════
+from backend.billing.lemonsqueezy import (
+    create_checkout_url,
+    get_customer_portal_url,
+    parse_subscription_event,
+    verify_webhook_signature,
+)
+
+# Variant ID → plan name mapping (mirrors lemonsqueezy.py _variant_to_plan)
+_LS_PLAN_VARIANTS = {
+    "pro":   ["LEMONSQUEEZY_PRO_MONTHLY_VARIANT_ID", "LEMONSQUEEZY_PRO_ANNUAL_VARIANT_ID"],
+    "coach": ["LEMONSQUEEZY_COACH_MONTHLY_VARIANT_ID", "LEMONSQUEEZY_COACH_ANNUAL_VARIANT_ID"],
+}
+
+
+class CheckoutBody(StrictBody):
+    variant_id: str      # LemonSqueezy variant ID for the chosen plan + cadence
+
+
+class CheckoutResponse(BaseModel):
+    url: str             # Hosted LemonSqueezy checkout URL — redirect client here
+
+
+@app.post("/api/billing/checkout", response_model=CheckoutResponse)
+async def billing_checkout(
+    body: CheckoutBody,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> CheckoutResponse:
+    """Create a LemonSqueezy hosted checkout session for the given variant.
+    Client should redirect to the returned URL.
+    """
+    if config.is_desktop():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="billing not available in desktop mode",
+        )
+    user = await storage.get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    web_base = os.getenv("WEB_BASE_URL", "http://127.0.0.1:3000")
+    url = await create_checkout_url(
+        variant_id=body.variant_id,
+        user_id=user_id,
+        user_email=user["email"],
+        redirect_url=f"{web_base}/billing/success",
+    )
+    return CheckoutResponse(url=url)
+
+
+class PortalResponse(BaseModel):
+    url: str
+
+
+@app.post("/api/billing/portal", response_model=PortalResponse)
+async def billing_portal(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> PortalResponse:
+    """Return the LemonSqueezy customer portal URL for managing subscription."""
+    if config.is_desktop():
+        raise HTTPException(status_code=404, detail="billing not available in desktop mode")
+
+    user = await storage.get_user(user_id)
+    customer_id = (user or {}).get("ls_customer_id") or ""
+    url = get_customer_portal_url(customer_id)
+    return PortalResponse(url=url)
+
+
+class BillingStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    plan: str
+    ls_subscription_id: str | None = None
+    ls_customer_id: str | None = None
+    plan_renewal_at: str | None = None
+    plan_ends_at: str | None = None
+
+
+@app.get("/api/billing/status", response_model=BillingStatusResponse)
+async def billing_status(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> BillingStatusResponse:
+    """Current billing state for the settings page."""
+    user = await storage.get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return BillingStatusResponse(
+        plan=user.get("plan", "free"),
+        ls_subscription_id=user.get("ls_subscription_id"),
+        ls_customer_id=user.get("ls_customer_id"),
+        plan_renewal_at=user.get("plan_renewal_at"),
+        plan_ends_at=user.get("plan_ends_at"),
+    )
+
+
+@app.post("/api/webhooks/lemonsqueezy", status_code=200)
+async def lemonsqueezy_webhook(
+    request: Request,
+    storage: StorageAdapter = Depends(storage_dep),
+) -> dict[str, str]:
+    """Receive LemonSqueezy subscription lifecycle webhooks.
+
+    Events handled:
+      subscription_created   → activate plan
+      subscription_updated   → sync plan (upgrade/downgrade/trial→active)
+      subscription_cancelled → keep plan active until period end, set plan_ends_at
+      subscription_expired   → downgrade to free
+      subscription_payment_failed → log warning
+    """
+    payload = await request.body()
+
+    webhook_secret = config.LEMONSQUEEZY_WEBHOOK_SECRET
+    if webhook_secret:
+        sig = request.headers.get("X-Signature", "")
+        if not verify_webhook_signature(payload, sig, webhook_secret):
+            log.warning("LemonSqueezy webhook signature verification failed")
+            raise HTTPException(status_code=400, detail="invalid signature")
+
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON")
+
+    event_name: str = (data.get("meta") or {}).get("event_name", "")
+    log.info("lemonsqueezy webhook event=%s", event_name)
+
+    if not event_name.startswith("subscription_"):
+        return {"status": "ignored", "event": event_name}
+
+    ev = parse_subscription_event(event_name, data)
+    user_id: str | None = ev["user_id"]
+
+    # Resolve user — prefer custom_data.user_id, fall back to customer_id lookup
+    if not user_id and ev["customer_id"]:
+        row = await storage.get_user_by_ls_customer_id(ev["customer_id"])
+        user_id = (row or {}).get("id")
+
+    if not user_id:
+        log.warning("lemonsqueezy webhook: cannot resolve user for event=%s customer=%s",
+                    event_name, ev["customer_id"])
+        return {"status": "ignored", "reason": "user not found"}
+
+    if event_name in ("subscription_created", "subscription_updated"):
+        # active, on_trial → grant plan. paused/cancelled → keep but note ends_at
+        if ev["status"] in ("active", "on_trial"):
+            plan = ev["plan"] or "free"
+        elif ev["status"] in ("cancelled",):
+            plan = ev["plan"] or "free"  # keep until period ends
+        else:
+            plan = "free"
+
+        await storage.update_user_billing(
+            user_id,
+            plan=plan,
+            ls_subscription_id=ev["subscription_id"],
+            ls_customer_id=ev["customer_id"],
+            ls_variant_id=ev["variant_id"],
+            plan_renewal_at=ev["renews_at"],
+            plan_ends_at=ev["ends_at"] or ev["trial_ends_at"],
+        )
+        log.info("user %s → plan=%s status=%s", user_id, plan, ev["status"])
+
+    elif event_name == "subscription_expired":
+        # Grace period over — downgrade to free
+        await storage.update_user_billing(
+            user_id,
+            plan="free",
+            ls_subscription_id=ev["subscription_id"],
+            ls_customer_id=ev["customer_id"],
+            ls_variant_id=ev["variant_id"],
+            plan_renewal_at=None,
+            plan_ends_at=None,
+        )
+        log.info("user %s subscription expired → downgraded to free", user_id)
+
+    elif event_name == "subscription_payment_failed":
+        log.warning("payment failed for user=%s subscription=%s",
+                    user_id, ev["subscription_id"])
+
+    return {"status": "ok", "event": event_name}
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Phase 8 — Cover Letter + Interview Prep (Pro/Coach features)
 # ══════════════════════════════════════════════════════════════════════
 from backend.ai.cover_letter import (

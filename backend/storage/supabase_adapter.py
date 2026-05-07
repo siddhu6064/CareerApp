@@ -976,3 +976,40 @@ class SupabaseAdapter(StorageAdapter):
             .execute()
         )
         return _one(res)
+
+    # ── Phase 7: Billing ─────────────────────────────────────────────────
+    async def update_user_billing(
+        self,
+        user_id: str,
+        *,
+        plan: str,
+        ls_subscription_id: str,
+        ls_customer_id: str,
+        ls_variant_id: str,
+        plan_renewal_at: str | None,
+        plan_ends_at: str | None,
+    ) -> dict[str, Any]:
+        await self._client.table("users").update({
+            "plan": plan,
+            "ls_subscription_id": ls_subscription_id,
+            "ls_customer_id": ls_customer_id,
+            "ls_variant_id": ls_variant_id,
+            "plan_renewal_at": plan_renewal_at,
+            "plan_ends_at": plan_ends_at,
+            "updated_at": _utc_now(),
+        }).eq("id", user_id).execute()
+        row = await self.get_user(user_id)
+        assert row is not None
+        return row
+
+    async def get_user_by_ls_customer_id(
+        self, ls_customer_id: str
+    ) -> dict[str, Any] | None:
+        res = await (
+            self._client.table("users")
+            .select("*")
+            .eq("ls_customer_id", ls_customer_id)
+            .limit(1)
+            .execute()
+        )
+        return _one(res)

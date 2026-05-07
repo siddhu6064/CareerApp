@@ -16,6 +16,21 @@ const baseLinks = [
 
 const COACH_PLANS = new Set(["coach", "desktop"]);
 
+function PlanBadge({ plan }: { plan: string }) {
+  const cfg: Record<string, { label: string; cls: string }> = {
+    free:    { label: "Free",    cls: "bg-gray-100 text-gray-500" },
+    pro:     { label: "Pro",     cls: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" },
+    coach:   { label: "Coach",   cls: "bg-purple-100 text-purple-700" },
+    desktop: { label: "Desktop", cls: "bg-gray-100 text-gray-600" },
+  };
+  const { label, cls } = cfg[plan] ?? cfg.free;
+  return (
+    <span className={`px-2 py-0.5 rounded-full font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
 export function Nav() {
   const path = usePathname();
   const router = useRouter();
@@ -72,15 +87,24 @@ export function Nav() {
               })()}
             </ul>
             {quota && (
-              <span className="text-xs text-[var(--color-ink-soft)]">
-                Tailor:{" "}
-                <strong>
-                  {quota.tailor_count_month}/
-                  {quota.tailor_limit > 1000 ? "∞" : quota.tailor_limit}
-                </strong>
-                {" · "}
-                {quota.plan}
-              </span>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[var(--color-ink-soft)]">
+                  Tailor:{" "}
+                  <strong>
+                    {quota.tailor_count_month}/
+                    {quota.tailor_limit > 1000 ? "∞" : quota.tailor_limit}
+                  </strong>
+                </span>
+                <PlanBadge plan={quota.plan} />
+                {quota.plan === "free" && (
+                  <a
+                    href="/billing"
+                    className="px-2 py-0.5 bg-[var(--color-brand)] text-white rounded-full font-semibold hover:bg-[var(--color-brand-lt)] transition-colors"
+                  >
+                    Upgrade
+                  </a>
+                )}
+              </div>
             )}
             <button
               onClick={signOut}

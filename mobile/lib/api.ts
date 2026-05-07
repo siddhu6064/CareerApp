@@ -292,4 +292,14 @@ export const api = {
     const q = job_id ? `?job_id=${encodeURIComponent(job_id)}` : "";
     return request<InterviewPrepOut[]>(`/api/interview-prep${q}`);
   },
+
+  // ── Phase 7: Billing ──────────────────────────────────────────────
+  billingCheckout: (variantId: string) =>
+    request<{ url: string }>("/api/billing/checkout", {
+      method: "POST", body: JSON.stringify({ variant_id: variantId }),
+    }),
+  billingPortal: () =>
+    request<{ url: string }>("/api/billing/portal", { method: "POST" }),
+  billingStatus: () =>
+    request<{ plan: string; plan_renewal_at: string | null; plan_ends_at: string | null }>("/api/billing/status"),
 };

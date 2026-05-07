@@ -437,3 +437,28 @@ class StorageAdapter(ABC):
     @abstractmethod
     async def get_coach_branding(self, coach_id: str) -> dict[str, Any] | None:
         """Returns {logo_path, brand_color} or None if coach has no row."""
+
+    # ── Phase 7: Billing (LemonSqueezy) ─────────────────────────────────
+    @abstractmethod
+    async def update_user_billing(
+        self,
+        user_id: str,
+        *,
+        plan: str,
+        ls_subscription_id: str,
+        ls_customer_id: str,
+        ls_variant_id: str,
+        plan_renewal_at: str | None,
+        plan_ends_at: str | None,
+    ) -> dict[str, Any]:
+        """Update plan + LemonSqueezy subscription fields on a user row.
+        Called by the webhook handler on subscription_created/updated/cancelled.
+        """
+
+    @abstractmethod
+    async def get_user_by_ls_customer_id(
+        self, ls_customer_id: str
+    ) -> dict[str, Any] | None:
+        """Look up a user by their LemonSqueezy customer_id.
+        Fallback when custom_data.user_id is missing from webhook payload.
+        """

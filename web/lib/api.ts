@@ -264,6 +264,23 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  // ── Phase 7: Billing ────────────────────────────────────────────────
+  billingCheckout: (variantId: string) =>
+    request<{ url: string }>("/api/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ variant_id: variantId }),
+    }),
+  billingPortal: () =>
+    request<{ url: string }>("/api/billing/portal", { method: "POST" }),
+  billingStatus: () =>
+    request<{
+      plan: string;
+      ls_subscription_id: string | null;
+      ls_customer_id: string | null;
+      plan_renewal_at: string | null;
+      plan_ends_at: string | null;
+    }>("/api/billing/status"),
+
   // ── Phase 6: Digest unsubscribe + preview ─────────────────────────
   digestUnsubscribe: (token: string) =>
     request<{ ok: boolean; message: string }>(`/api/digest/unsubscribe/${encodeURIComponent(token)}`, {

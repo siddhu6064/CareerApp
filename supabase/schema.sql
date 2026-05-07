@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS public.users (
     push_token            TEXT,
     coach_logo_path       TEXT,
     coach_brand_color     TEXT,
+    -- Phase 7: LemonSqueezy billing
+    ls_subscription_id    TEXT,
+    ls_customer_id        TEXT,
+    ls_variant_id         TEXT,
+    plan_renewal_at       TIMESTAMPTZ,
+    plan_ends_at          TIMESTAMPTZ,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

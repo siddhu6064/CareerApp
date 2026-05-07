@@ -158,6 +158,12 @@ class SqliteAdapter(StorageAdapter):
         for name, ddl in (
             ("coach_logo_path", "ALTER TABLE users ADD COLUMN coach_logo_path TEXT"),
             ("coach_brand_color", "ALTER TABLE users ADD COLUMN coach_brand_color TEXT"),
+            # Phase 7 — billing
+            ("ls_subscription_id", "ALTER TABLE users ADD COLUMN ls_subscription_id TEXT"),
+            ("ls_customer_id",     "ALTER TABLE users ADD COLUMN ls_customer_id TEXT"),
+            ("ls_variant_id",      "ALTER TABLE users ADD COLUMN ls_variant_id TEXT"),
+            ("plan_renewal_at",    "ALTER TABLE users ADD COLUMN plan_renewal_at TEXT"),
+            ("plan_ends_at",       "ALTER TABLE users ADD COLUMN plan_ends_at TEXT"),
         ):
             if name not in cols:
                 await self._db.execute(ddl)
@@ -1653,6 +1659,44 @@ class SqliteAdapter(StorageAdapter):
         async with self._db.execute(
             "SELECT coach_logo_path, coach_brand_color FROM users WHERE id = ?",
             (coach_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    # ── Phase 7: Billing ─────────────────────────────────────────────────
+    async def update_user_billing(
+        self,
+        user_id: str,
+        *,
+        plan: str,
+        ls_subscription_id: str,
+        ls_customer_id: str,
+        ls_variant_id: str,
+        plan_renewal_at: str | None,
+        plan_ends_at: str | None,
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        now = _utc_now()
+        await self._db.execute(
+            """UPDATE users SET
+               plan = ?, ls_subscription_id = ?, ls_customer_id = ?,
+               ls_variant_id = ?, plan_renewal_at = ?, plan_ends_at = ?,
+               updated_at = ?
+               WHERE id = ?""",
+            (plan, ls_subscription_id, ls_customer_id,
+             ls_variant_id, plan_renewal_at, plan_ends_at, now, user_id),
+        )
+        await self._db.commit()
+        user = await self.get_user(user_id)
+        assert user is not None
+        return user
+
+    async def get_user_by_ls_customer_id(
+        self, ls_customer_id: str
+    ) -> dict[str, Any] | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM users WHERE ls_customer_id = ?", (ls_customer_id,)
         ) as cur:
             row = await cur.fetchone()
         return dict(row) if row else None

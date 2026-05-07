@@ -31,6 +31,12 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 # Internal cron secret (SaaS only — GitHub Actions hits /internal/* endpoints)
 X_INTERNAL_SECRET: str = os.getenv("X_INTERNAL_SECRET", "")
 
+# ── Billing (LemonSqueezy) ─────────────────────────────────────────────
+LEMONSQUEEZY_API_KEY: str = os.getenv("LEMONSQUEEZY_API_KEY", "")
+LEMONSQUEEZY_STORE_ID: str = os.getenv("LEMONSQUEEZY_STORE_ID", "")
+LEMONSQUEEZY_STORE_SLUG: str = os.getenv("LEMONSQUEEZY_STORE_SLUG", "appname")
+LEMONSQUEEZY_WEBHOOK_SECRET: str = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+
 # Local API token (desktop only — regenerated each launch)
 LOCAL_API_TOKEN: str = secrets.token_hex(32)
 

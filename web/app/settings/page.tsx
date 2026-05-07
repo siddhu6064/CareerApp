@@ -246,6 +246,9 @@ export default function SettingsPage() {
         />
       </section>
 
+      {/* ── Billing ───────────────────────────────────────────────── */}
+      <BillingSection />
+
       <p className="text-xs text-[var(--color-ink-soft)]">
         Changes save automatically. Updated{" "}
         {prefs && new Date((prefs as Prefs & { updated_at: string }).updated_at).toLocaleString()}.
@@ -317,6 +320,88 @@ function DigestPreviewWidget({ count }: { count: number }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Billing section ─────────────────────────────────────────────────
+function BillingSection() {
+  const [status, setStatus] = useState<{
+    plan: string;
+    plan_renewal_at: string | null;
+    plan_ends_at: string | null;
+    ls_customer_id: string | null;
+  } | null>(null);
+  const [portalBusy, setPortalBusy] = useState(false);
+
+  useEffect(() => {
+    api.billingStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  async function openPortal() {
+    setPortalBusy(true);
+    try {
+      const { url } = await api.billingPortal();
+      window.open(url, "_blank");
+    } catch { /* ignore */ } finally {
+      setPortalBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  const isPaid = status.plan !== "free" && status.plan !== "desktop";
+  const planLabel = { free: "Free", pro: "Pro", coach: "Coach", desktop: "Desktop" }[status.plan] ?? status.plan;
+
+  return (
+    <section className="bg-white border border-[var(--color-border)] rounded-lg p-6 space-y-4">
+      <h2 className="font-semibold">Plan &amp; billing</h2>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-medium">{planLabel} plan</p>
+          {status.plan_renewal_at && (
+            <p className="text-xs text-[var(--color-ink-soft)] mt-0.5">
+              Renews {new Date(status.plan_renewal_at).toLocaleDateString()}
+            </p>
+          )}
+          {status.plan_ends_at && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              Access until {new Date(status.plan_ends_at).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+
+        {isPaid ? (
+          <button
+            onClick={openPortal}
+            disabled={portalBusy}
+            className="px-4 py-2 text-sm border border-[var(--color-border)] rounded-lg hover:border-[var(--color-brand)] disabled:opacity-60"
+          >
+            {portalBusy ? "Opening…" : "Manage subscription"}
+          </button>
+        ) : (
+          status.plan !== "desktop" && (
+            <a
+              href="/billing"
+              className="px-4 py-2 text-sm bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-lt)] font-semibold"
+            >
+              Upgrade
+            </a>
+          )
+        )}
+      </div>
+
+      {!isPaid && status.plan !== "desktop" && (
+        <div className="bg-[var(--color-brand-bg)] rounded-lg p-3 text-sm">
+          <p className="font-medium text-[var(--color-brand)]">
+            Unlock Pro — $19/mo
+          </p>
+          <p className="text-xs text-[var(--color-ink-soft)] mt-0.5">
+            100 tailors/month · Cover letters · Interview prep · Full analytics
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 
