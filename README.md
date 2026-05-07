@@ -1,84 +1,67 @@
-# [AppName] — Phases 1–6 + 8 + 9 + 10 (code/config)
+# [AppName]
 
-Multi-tenant SaaS job-search platform with web + mobile clients, Render-ready
-backend, daily digest email, push notifications, and GitHub Actions cron.
+AI-powered job search platform — web, mobile, and desktop. Upload your resume once, get a daily digest of ranked jobs, tailor your resume to any role in one click, track applications through every stage, and prep for interviews — all with Claude AI.
 
-Desktop variant uses the same backend in local mode (BYOK Anthropic key,
-SQLite, local files). The same FastAPI app powers both — `APPNAME_MODE`
-selects storage and auth strategy.
+**Build state:** 205/252 tasks (81.3%) · Phases 1–7, 8, 9, 10 (code) complete
 
-## Status
+---
 
-| Phase | Status | Notes |
-|------:|:-------|:------|
-| 1 — Foundation                  | ✅ done | StorageAdapter pattern, mode-aware config, local-token auth |
-| 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs (SaaS), Greenhouse/Lever/Ashby/Workable (desktop) |
-| 3 — Resume + Tracker            | ✅ done | Master resume parser, 8-stage tracker, sub-resources |
-| 4a — Web UI                     | ✅ done | Next.js 15, 16 routes, kanban, settings panel + BYOK card |
-| 4b — Mobile                     | ✅ done | Expo SDK 52, 5 tabs, push registration |
-| 5 — AI Tailor + PDF             | ✅ done | Sonnet structured output, WeasyPrint, Free 3 / Pro 100 / Coach 100 / Desktop ∞ |
-| 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GH Actions cron |
-| 7 — Billing                     | ⏳ next  | LemonSqueezy webhooks |
-| 8 — Pro features                | ✅ done | Cover letters, interview prep, analytics |
-| 9 — Coach features              | ✅ done | 14 endpoints, multi-client, bulk tailor, white-label PDF |
-| 10 — Desktop variant            | ✅ code/config | BYOK + 4 ATS adapters + Tauri 2 shell + APScheduler + auto-updater + signing config + GH Actions release workflow. **Paid certs ($99 Apple + $300 Windows EV) and multi-OS validation are user actions — see `docs/DESKTOP_VALIDATION.md`.** |
+## Stack
 
-## Test status
+| Layer | Technology |
+|---|---|
+| Web | Next.js 15.5 (App Router) · Tailwind CSS v4 · Zustand · Vercel |
+| Mobile | Expo SDK 52 · React Native 0.76 · Expo Router 4 · iOS + Android |
+| Backend | FastAPI (Python 3.12) · Render (Docker) |
+| Database | Supabase (PostgreSQL + Auth + Realtime) in SaaS · SQLite in desktop/dev |
+| Storage | Cloudflare R2 (resume PDFs) in SaaS · LocalFileStorage in desktop |
+| AI | Claude Haiku 4.5 (tagging, digest pre-scoring) · Claude Sonnet 4.6 (tailoring, cover letters, interview prep, parsing) |
+| Jobs | JSearch (RapidAPI) primary · Adzuna fallback · Greenhouse/Lever/Ashby/Workable (desktop) |
+| Email | Resend (daily digest + transactional) |
+| Billing | LemonSqueezy (Pro $19/mo · Coach $49/mo · monthly + annual) |
+| Push | Expo Push Notification Service |
+| Desktop | Tauri 2 shell · PyInstaller sidecar · SQLite · APScheduler |
 
-- **162 backend tests passing** in BOTH `APPNAME_MODE=desktop` AND `APPNAME_MODE=saas` (no regressions)
-- Web typecheck + production build clean (Next 15.5.16)
-- Mobile TypeScript clean (Expo SDK 52)
-- 70 backend endpoints (was 57 — +13 Phase 10: BYOK, validate-keys, manual fetch)
+---
 
-## Phase 10 user-action checklist
+## Phase status
 
-Code is shipped. Before tagging `v0.1.0`:
+| Phase | Status | What's built |
+|---|---|---|
+| 1 — Foundation | ✅ code done | StorageAdapter, SqliteAdapter, SupabaseAdapter (~980 lines), docker-compose, Supabase schema + RLS, auth |
+| 2 — Job Feed | ✅ code done | JSearch + Adzuna fetchers, Haiku tagger, quality gate, dedup, TTL cache |
+| 3 — Resume + Tracker | ✅ code done | PDF/DOCX/TXT parse, 8-stage tracker, recruiter contacts, interviews, salary, Supabase JWT |
+| 4a — Web UI | ✅ done | 19 pages, drag-drop kanban, onboarding, grade badges, diff view, PDF preview, upgrade modal |
+| 4b — Mobile | ✅ done | 5 tabs, swipe kanban, MMKV offline, sync queue, recruiter screen, deep links, push tap |
+| 5 — AI Tailor + PDF | ✅ done | Sonnet structured output, WeasyPrint, ATS scoring, Free 3 / Pro 100 / Desktop ∞ |
+| 6 — Notifications | ✅ code done | ATS pre-scored digest, one-click unsubscribe, Resend webhooks, Expo push reminders |
+| 7 — Billing | ✅ code done | LemonSqueezy checkout + portal + webhook lifecycle, pricing page, upgrade sheet, plan badge |
+| 8 — Pro Features | ✅ done | Cover letters, interview prep (offline mobile), analytics dashboard |
+| 9 — Coach Tier | ✅ done | 14 endpoints, 10 client profiles, bulk tailor, white-label PDF |
+| 10 — Desktop | ✅ code done | Tauri 2, BYOK key management, 4 ATS source adapters, APScheduler, auto-updater, release workflow |
 
-1. Apple Developer Program enrollment ($99/yr)
-2. Windows EV code signing cert (~$300/yr)
-3. Generate ed25519 updater keypair: `cargo tauri signer generate -w ~/.tauri/appname.key`
-4. Replace `REPLACE_WITH_TAURI_UPDATER_PUBKEY` in `desktop/src-tauri/tauri.conf.json`
-5. Set GitHub repo secrets (see top of `.github/workflows/desktop-release.yml`)
-6. Build real `icon.icns` + `icon.ico` (see `desktop/src-tauri/icons/README.md`)
-7. Run multi-OS validation in `docs/DESKTOP_VALIDATION.md`
-8. Stand up `desktop.appname.io` for the update manifest (Vercel)
+**186 backend tests passing · web `tsc --noEmit` clean · mobile `tsc --noEmit` clean**
 
-## Repo layout
+---
 
-```
-appname/
-├── backend/                       # FastAPI + SQLite (desktop) / Supabase (SaaS)
-│   ├── main.py                    # 39 endpoints
-│   ├── config.py                  # APPNAME_MODE detection + env wiring
-│   ├── storage/                   # StorageAdapter abstract base + impls
-│   ├── auth/                      # local_token (desktop) + supabase_jwt stub
-│   ├── jobs/                      # JSearch/Adzuna fetchers, tagger, pipeline, cache
-│   ├── resumes/                   # Sonnet parser + file storage adapter
-│   ├── tailor/                    # AI tailor: scorer + sonnet + WeasyPrint render
-│   ├── notifications/             # Resend email + Expo push (Phase 6)
-│   ├── agents/justhireme/         # MIT-licensed scoring engine port
-│   ├── tests/                     # pytest-asyncio, 88 tests
-│   ├── Dockerfile                 # multi-stage, all WeasyPrint native libs
-│   ├── render.yaml                # Render Blueprint, 13 env vars
-│   ├── DEPLOY.md                  # ops doc
-│   └── requirements.txt           # pinned versions
-├── web/                           # Next.js 15 (App Router) + Tailwind v4 + Zustand
-│   ├── app/                       # /, /signin, /jobs, /jobs/[id], /tracker,
-│   │                              # /applications/[id], /resume, /tailored, /settings
-│   ├── components/                # JobCard, JobFilters, TailorPanel, StatusBadge, Nav
-│   └── lib/                       # api.ts (typed client), store.ts (Zustand), types.ts
-├── mobile/                        # Expo SDK 52 + Expo Router 4 + Zustand
-│   ├── app/                       # (tabs), signin, jobs/[id], applications/[id]
-│   ├── components/                # JobCard, ApplicationCard, TailorPanel, ScoreCircle
-│   └── lib/                       # api.ts, auth.ts (SecureStore), notifications.ts
-├── .github/workflows/             # 3 cron jobs (Phase 6)
-│   ├── cron-jobs-fetch.yml        # 06:00 UTC daily
-│   ├── cron-digest.yml            # 06:15 UTC daily
-│   └── cron-push.yml              # 06:30 UTC daily
-└── LICENSE-justhireme             # MIT credit for ported scoring engine
-```
+## Tier gates
 
-## Quick start (desktop dev mode — no signups, no API keys)
+| Feature | Free | Pro ($19/mo) | Coach ($49/mo) | Desktop |
+|---|---|---|---|---|
+| Active tracked applications | 10 | Unlimited | Unlimited + 10 clients | Unlimited |
+| AI tailors / month | 3 | 100 | 100 | ∞ (BYOK) |
+| Digest ATS match % | Hidden | ✅ | ✅ | ✅ |
+| Cover letters | — | ✅ | ✅ | ✅ |
+| Interview prep | — | ✅ | ✅ | ✅ |
+| Analytics dashboard | — | ✅ | ✅ | ✅ |
+| Bulk tailor for clients | — | — | ✅ | — |
+| White-label PDF | — | — | ✅ | — |
+
+All gates enforced server-side. Tests in `test_applications.py`, `test_tailor.py`, `test_phase7.py`.
+
+---
+
+## Quick start — local dev (no signups needed)
 
 ### Backend
 
@@ -88,17 +71,25 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 APPNAME_MODE=desktop \
-STUB_JOBS_API=1 STUB_ANTHROPIC=1 STUB_RESEND=1 STUB_EXPO_PUSH=1 \
+STUB_JOBS_API=1 STUB_ANTHROPIC=1 STUB_RESEND=1 STUB_EXPO_PUSH=1 STUB_LEMONSQUEEZY=1 \
   uvicorn backend.main:app --reload
 ```
 
-The server prints a per-launch bearer token like:
-
+Server prints a per-launch bearer token:
 ```
-[AppName] mode=desktop  api_token=<hex>
+[AppName] mode=desktop  api_token=a1b2c3...
 ```
+Copy it — both web and mobile use it for auth in dev mode.
 
-Copy that — both clients need it for auth.
+### Run tests
+
+```bash
+cd backend
+APPNAME_MODE=desktop STUB_JOBS_API=1 STUB_ANTHROPIC=1 STUB_RESEND=1 \
+STUB_EXPO_PUSH=1 STUB_LEMONSQUEEZY=1 APPNAME_DISABLE_SCHEDULER=1 \
+  pytest -q
+# → 186 passed
+```
 
 ### Web
 
@@ -106,12 +97,12 @@ Copy that — both clients need it for auth.
 cd web
 npm install --legacy-peer-deps
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 npm run dev
+# → http://localhost:3000
 ```
 
-Open `http://localhost:3000`, paste the token on `/signin`, then visit `/jobs`
-and click "Ingest sample jobs" to populate the feed.
+Paste the backend token on `/signin`. Visit `/jobs` → "Ingest sample jobs" to populate feed.
 
-### Mobile (Expo)
+### Mobile
 
 ```bash
 cd mobile
@@ -119,52 +110,148 @@ npm install --legacy-peer-deps
 npx expo start
 ```
 
-Edit `app.json`'s `extra.apiUrl` if you need the device to hit a non-localhost
-backend URL (e.g. your laptop's LAN IP for a real phone).
+### Docker (SaaS mode)
+
+```bash
+cp backend/.env.example backend/.env   # fill in SUPABASE_* vars
+docker compose up --build
+# Backend at http://localhost:8000
+```
+
+---
+
+## Environment variables
+
+All env vars are documented in `backend/.env.example`. Summary:
+
+| Service | Variables | Where to get |
+|---|---|---|
+| Supabase | `SUPABASE_URL` `SUPABASE_SERVICE_KEY` `SUPABASE_JWT_SECRET` | supabase.com → Project Settings → API |
+| Anthropic | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys · set $50/mo hard cap |
+| LemonSqueezy | `LEMONSQUEEZY_API_KEY` `LEMONSQUEEZY_STORE_ID` `LEMONSQUEEZY_WEBHOOK_SECRET` + 4 variant IDs | app.lemonsqueezy.com → Settings → API |
+| Resend | `RESEND_API_KEY` `RESEND_FROM` `RESEND_WEBHOOK_SECRET` | resend.com → API Keys + Domains |
+| Cloudflare R2 | `R2_ENDPOINT` `R2_BUCKET` `R2_ACCESS_KEY_ID` `R2_SECRET_ACCESS_KEY` | dash.cloudflare.com → R2 |
+| JSearch | `JSEARCH_API_KEY` | rapidapi.com → JSearch |
+| Adzuna | `ADZUNA_APP_ID` `ADZUNA_API_KEY` | developer.adzuna.com |
+| Internal | `X_INTERNAL_SECRET` | `openssl rand -hex 32` — add to GitHub secrets too |
+| URL | `WEB_BASE_URL` | `https://app.appname.io` in production |
+
+---
 
 ## Production deploy
 
+### Supabase
+
+Run `supabase/schema.sql` in the SQL Editor — creates all tables, RLS policies, Realtime publication, and the `handle_new_user()` trigger.
+
 ### Backend → Render
 
-1. Connect this repo to Render.
-2. Render auto-detects `backend/render.yaml` (Blueprint).
-3. Set the secrets in the dashboard (all marked `sync: false`):
-   `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
-   `SUPABASE_JWT_SECRET`, `R2_BUCKET`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_ENDPOINT`,
-   `JSEARCH_API_KEY`, `ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, `RESEND_API_KEY`.
-4. Render auto-generates `INTERNAL_SECRET`. Copy that into GitHub Actions
-   secrets as `INTERNAL_SECRET` + add `API_URL=https://your-render-url`.
+1. Connect repo to Render — auto-detects `backend/render.yaml`
+2. Add all env vars from `backend/.env.example` in the dashboard
+3. Render auto-generates `INTERNAL_SECRET` — copy to GitHub repo secrets
+
+### Web → Vercel
+
+```bash
+cd web && vercel --prod
+```
+
+Add `NEXT_PUBLIC_API_URL` + Supabase + LemonSqueezy variant ID env vars in Vercel dashboard.
 
 ### GitHub Actions cron
 
-The three workflows in `.github/workflows/` need two repository secrets:
+Requires GitHub repo secrets: `API_URL` + `INTERNAL_SECRET`
 
-- `API_URL` — your Render service URL
-- `INTERNAL_SECRET` — must match Render's value
+| Workflow | Schedule | Purpose |
+|---|---|---|
+| `cron-jobs-fetch.yml` | 06:00 UTC | Fetch + tag jobs from JSearch/Adzuna |
+| `cron-digest.yml` | 06:15 UTC | ATS pre-score + send digest emails |
+| `cron-push.yml` | 06:30 UTC | Interview/follow-up/stale push notifications |
 
-Schedules:
-- `cron-jobs-fetch.yml` — 06:00 UTC daily (job ingestion)
-- `cron-digest.yml` — 06:15 UTC daily (digest email, hour=6 bucket)
-- `cron-push.yml` — 06:30 UTC daily (interview/follow-up/stale push)
+All have `workflow_dispatch` for manual testing.
 
-Each workflow has `workflow_dispatch` so you can trigger them manually for testing.
+---
 
-## Tier gates (PRD §11)
+## Repo structure
 
-| Tier        | Tracker      | Tailors/mo | Digest ATS % | Cover letters | Interview prep | Analytics |
-|-------------|--------------|-----------:|:-------------|:--------------|:---------------|:----------|
-| Free        | 10 active    | 3          | hidden       | —             | —              | —         |
-| Pro ($19)   | unlimited    | 100        | shown        | ✓             | ✓              | ✓         |
-| Coach ($49) | unlimited + 10 clients | 100 | shown    | ✓             | ✓              | ✓ + bulk + white-label |
-| Desktop     | unlimited    | unlimited (BYOK) | always shown | ✓        | ✓              | ✓         |
+```
+CareerApp/
+├── backend/
+│   ├── main.py                    # 74 endpoints
+│   ├── config.py                  # mode-aware env wiring
+│   ├── billing/lemonsqueezy.py    # checkout, portal, webhook verify
+│   ├── storage/                   # StorageAdapter + SqliteAdapter + SupabaseAdapter
+│   ├── auth/                      # local_token (desktop) + supabase_jwt (SaaS)
+│   ├── jobs/                      # JSearch/Adzuna fetchers, Haiku tagger, pipeline
+│   ├── resumes/                   # Sonnet parser, file storage adapter
+│   ├── tailor/                    # AI tailor: scorer + Sonnet + WeasyPrint
+│   ├── ai/                        # cover_letter.py, interview_prep.py
+│   ├── analytics/                 # funnel, ATS correlation, digest metrics
+│   ├── coach/                     # bulk tailor, branding injection
+│   ├── notifications/             # Resend email + Expo push
+│   ├── agents/justhireme/         # MIT-licensed ATS scoring engine
+│   ├── agents/sources/            # Greenhouse/Lever/Ashby/Workable (desktop)
+│   ├── tests/                     # 186 tests, 12 test files
+│   ├── Dockerfile                 # multi-stage, WeasyPrint native libs
+│   ├── render.yaml                # Render Blueprint
+│   └── .env.example               # all env vars documented
+├── web/
+│   ├── app/                       # 19 pages
+│   ├── components/                # 17 components
+│   └── lib/                       # api.ts, store.ts, realtime.ts
+├── mobile/
+│   ├── app/                       # 13 screens
+│   ├── components/                # SwipeableApplicationCard, UpgradeSheet ...
+│   └── lib/                       # api.ts, mmkv.ts, sync.ts, notifications.ts
+├── supabase/schema.sql            # PostgreSQL + RLS + Realtime + trigger
+├── desktop/
+│   ├── src-tauri/                 # Tauri 2 config + Rust sidecar
+│   ├── site/                      # desktop.appname.io static site (Vercel)
+│   └── README.md                  # desktop build + signing guide
+├── docs/DESKTOP_VALIDATION.md    # multi-OS validation checklist
+├── .github/workflows/             # 3 cron jobs + desktop release matrix
+├── docker-compose.yml
+├── CHANGELOG.md
+├── ROADMAP.md
+└── LICENSE-justhireme
+```
 
-Gates are enforced server-side. The Free tracker limit (10 active) and Free
-tailor limit (3/mo) have explicit tests in `test_applications.py` and
-`test_tailor.py`.
+---
+
+## Pending — user actions to go live
+
+### SaaS (in order)
+
+1. Supabase — create project, run `supabase/schema.sql`, enable Auth + Realtime
+2. Cloudflare R2 — create bucket, generate API token
+3. Anthropic — API key, set $50/mo hard spend limit
+4. Resend — verify domain (SPF/DKIM/DMARC), API key
+5. JSearch — subscribe on RapidAPI
+6. Adzuna — create developer app
+7. LemonSqueezy — store, Pro product (monthly $19 + annual $190, 7-day trial), Coach product (monthly $49 + annual $490), register webhook URL, copy all env vars
+8. Render — deploy, set env vars, copy `INTERNAL_SECRET` to GitHub secrets
+9. Vercel — deploy web, set env vars
+10. GitHub secrets — `API_URL` + `INTERNAL_SECRET`
+
+### Mobile (after SaaS live)
+
+11. Apple Developer account ($99/yr)
+12. Google Play Console ($25)
+13. `eas build --platform all --profile production`
+14. `eas submit --platform ios` + `eas submit --platform android`
+
+### Desktop v0.1.0 (after SaaS validated)
+
+15. Apple Developer / Windows EV cert (~$300/yr)
+16. Generate ed25519 updater keypair: `cargo tauri signer generate`
+17. Add public key to `desktop/src-tauri/tauri.conf.json`
+18. Set `TAURI_SIGNING_PRIVATE_KEY` in GitHub Actions secrets
+19. Deploy `desktop/site/` to Vercel as `desktop.appname.io`
+20. Validate on macOS 14+, Windows 11, Ubuntu 22.04
+21. Tag `v0.1.0` — triggers release matrix build
+
+---
 
 ## Attribution
 
-The deterministic ATS scoring engine in `backend/agents/justhireme/` is
-adapted from [vasu-devs/justhireme](https://github.com/vasu-devs/justhireme),
-MIT-licensed. Each ported file carries an attribution header; the project
-LICENSE lives at `LICENSE-justhireme` at the repo root.
+`backend/agents/justhireme/` is adapted from [vasu-devs/justhireme](https://github.com/vasu-devs/justhireme), MIT-licensed. License at `LICENSE-justhireme`. Per-file attribution headers preserved.
