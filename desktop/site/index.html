@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>[AppName] Desktop</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #0D0F14; color: #F0F4FF;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 40px 20px;
+  }
+  .logo { font-size: 13px; font-family: monospace; letter-spacing: 3px;
+    text-transform: uppercase; color: #7C3AED; margin-bottom: 32px; }
+  h1 { font-size: 42px; font-weight: 800; margin-bottom: 12px; letter-spacing: -1px; }
+  h1 em { color: #9F5EFF; font-style: normal; }
+  .sub { font-size: 18px; color: #6B7A9F; margin-bottom: 48px; max-width: 480px; text-align: center; line-height: 1.6; }
+  .downloads { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 48px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    text-decoration: none; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-mac  { background: #1A1E2A; border: 1px solid #313B52; color: #F0F4FF; }
+  .btn-win  { background: #1A1E2A; border: 1px solid #313B52; color: #F0F4FF; }
+  .btn-linux{ background: #1A1E2A; border: 1px solid #313B52; color: #F0F4FF; }
+  .note { font-size: 12px; color: #3D4A66; font-family: monospace; }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 640px; margin-bottom: 48px; }
+  .feature { background: #13161E; border: 1px solid #1A1E2A; border-radius: 10px; padding: 16px; }
+  .feature-icon { font-size: 20px; margin-bottom: 8px; }
+  .feature-title { font-size: 13px; font-weight: 600; color: #B8C5E0; margin-bottom: 4px; }
+  .feature-desc  { font-size: 11px; color: #3D4A66; line-height: 1.5; }
+  @media (max-width: 600px) { .features { grid-template-columns: 1fr 1fr; } h1 { font-size: 32px; } }
+</style>
+</head>
+<body>
+
+<div class="logo">[AppName] Desktop</div>
+
+<h1>Job search, <em>offline</em>.</h1>
+<p class="sub">
+  AI resume tailoring on your Mac, Windows, or Linux machine.
+  Bring your own Anthropic key — no subscription needed.
+</p>
+
+<div class="downloads">
+  <a class="btn btn-mac" href="https://github.com/siddhu6064/CareerApp/releases/latest/download/AppName_aarch64.dmg">
+    🍎 macOS (Apple Silicon)
+  </a>
+  <a class="btn btn-mac" href="https://github.com/siddhu6064/CareerApp/releases/latest/download/AppName_x64.dmg">
+    🍎 macOS (Intel)
+  </a>
+  <a class="btn btn-win" href="https://github.com/siddhu6064/CareerApp/releases/latest/download/AppName_x64-setup.exe">
+    🪟 Windows
+  </a>
+  <a class="btn btn-linux" href="https://github.com/siddhu6064/CareerApp/releases/latest/download/AppName_amd64.AppImage">
+    🐧 Linux (AppImage)
+  </a>
+</div>
+
+<div class="features">
+  <div class="feature">
+    <div class="feature-icon">🔑</div>
+    <div class="feature-title">BYOK</div>
+    <div class="feature-desc">Bring your own Anthropic key. Pay Anthropic directly — no markup.</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">📴</div>
+    <div class="feature-title">Offline-first</div>
+    <div class="feature-desc">Your tracker works with no internet. Sync when you reconnect.</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">∞</div>
+    <div class="feature-title">Unlimited tailors</div>
+    <div class="feature-desc">No monthly cap. Tailor as many resumes as your API budget allows.</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🔒</div>
+    <div class="feature-title">Local data</div>
+    <div class="feature-desc">All data stays in ~/.appname/data.db — never touches our servers.</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🔄</div>
+    <div class="feature-title">Auto-updates</div>
+    <div class="feature-desc">Updates are signed and verified automatically on each launch.</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🆓</div>
+    <div class="feature-title">Free forever</div>
+    <div class="feature-desc">Desktop is free. Pay Anthropic only. No SaaS subscription required.</div>
+  </div>
+</div>
+
+<p class="note">
+  Requires macOS 12+, Windows 10+, or Ubuntu 22.04+ &nbsp;·&nbsp;
+  Anthropic API key from <a href="https://console.anthropic.com" style="color:#7C3AED">console.anthropic.com</a>
+  &nbsp;·&nbsp; <a href="https://github.com/siddhu6064/CareerApp" style="color:#3D4A66">Source on GitHub</a>
+</p>
+
+</body>
+</html>

@@ -35,7 +35,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis", "appimage", "deb"],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis",
+      "appimage",
+      "deb"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,12 +50,14 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "externalBin": ["binaries/appname-server"],
+    "externalBin": [
+      "binaries/appname-server"
+    ],
     "category": "Productivity",
     "shortDescription": "Job-search app with AI tailor + tracker",
-    "longDescription": "AppName is a desktop job-search app: scrapes free public ATS boards, tailors your resume per job with your own Anthropic key, tracks applications through 8 stages, and generates ATS-optimised PDFs. BYOK — no subscription.",
+    "longDescription": "AppName is a desktop job-search app: scrapes free public ATS boards, tailors your resume per job with your own Anthropic key, tracks applications through 8 stages, and generates ATS-optimised PDFs. BYOK \u2014 no subscription.",
     "publisher": "AppName",
-    "copyright": "© 2026 AppName",
+    "copyright": "\u00a9 2026 AppName",
     "homepage": "https://appname.com",
     "macOS": {
       "minimumSystemVersion": "10.15",
@@ -64,7 +72,9 @@
       "timestampUrl": "http://timestamp.digicert.com",
       "nsis": {
         "installMode": "perMachine",
-        "languages": ["English"]
+        "languages": [
+          "English"
+        ]
       }
     },
     "linux": {
@@ -80,7 +90,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://desktop.appname.io/updates/{{target}}/{{arch}}/{{current_version}}"
+        "https://desktop.appname.io/latest.json"
       ],
       "dialog": false,
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"

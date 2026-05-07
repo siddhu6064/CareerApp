@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "appname-desktop-site",
+  "routes": [
+    {
+      "src": "/latest.json",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      },
+      "dest": "/latest.json"
+    },
+    {
+      "src": "/",
+      "dest": "/index.html"
+    }
+  ]
+}
