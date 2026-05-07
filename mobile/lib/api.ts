@@ -179,6 +179,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  updateInterview: (
+    appId: string,
+    interviewId: string,
+    patch: Partial<{
+      round: string;
+      scheduled_at: string;
+      duration_min: number;
+      interviewer_names: string[];
+      location: string;
+      notes: string;
+      outcome: string;
+    }>,
+  ) =>
+    request<Interview>(`/api/applications/${appId}/interviews/${interviewId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   salary: (appId: string) =>
     request<SalaryDetails[]>(`/api/applications/${appId}/salary`),
   addSalary: (appId: string, body: Partial<SalaryDetails>) =>
@@ -202,4 +219,58 @@ export const api = {
   fetchTailoredPdfBytes: async (id: string): Promise<{ url: string; token: string | null }> => {
     return { url: `${BASE}/api/tailored-resumes/${id}/pdf`, token: await getToken() };
   },
+
+  // ── Phase 6: push + notifications ─────────────────────────────────
+  registerPushToken: (
+    expoToken: string,
+    opts: { platform?: "ios" | "android" | "web"; deviceName?: string } = {},
+  ) =>
+    request<{
+      id: string; user_id: string; expo_token: string;
+      platform: string | null; device_name: string | null;
+      enabled: boolean; created_at: string; last_seen_at: string | null;
+    }>("/api/me/push-tokens", {
+      method: "POST",
+      body: JSON.stringify({
+        expo_token: expoToken,
+        platform: opts.platform,
+        device_name: opts.deviceName,
+      }),
+    }),
+  disablePushToken: (expoToken: string) =>
+    request<void>(`/api/me/push-tokens/${encodeURIComponent(expoToken)}`, {
+      method: "DELETE",
+    }),
+
+  notificationPrefs: () =>
+    request<{
+      user_id: string;
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+      updated_at: string;
+    }>("/api/me/notification-preferences"),
+  updateNotificationPrefs: (
+    patch: Partial<{
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+    }>,
+  ) =>
+    request<{
+      user_id: string;
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+      updated_at: string;
+    }>("/api/me/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
 };

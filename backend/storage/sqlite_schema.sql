@@ -285,3 +285,40 @@ CREATE TABLE IF NOT EXISTS interview_prep (
 );
 
 CREATE INDEX IF NOT EXISTS idx_interview_prep_user_job ON interview_prep(user_id, job_id, created_at DESC);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 6 — Daily digest email + push notifications
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ── push_tokens ─────────────────────────────────────────────────────
+-- Device registrations from Expo (mobile). Tokens look like
+-- ExponentPushToken[xxxxxxxxxxxx]. A user can have multiple devices.
+CREATE TABLE IF NOT EXISTS push_tokens (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    expo_token      TEXT NOT NULL UNIQUE,
+    platform        TEXT,                   -- 'ios' | 'android' | 'web'
+    device_name     TEXT,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_seen_at    TEXT,
+    last_error      TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled);
+
+-- ── notification_preferences ────────────────────────────────────────
+-- One row per user. Lazy-created on first read or first preference write.
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id           TEXT PRIMARY KEY,
+    digest_enabled    INTEGER NOT NULL DEFAULT 1,
+    push_enabled      INTEGER NOT NULL DEFAULT 1,
+    digest_count      INTEGER NOT NULL DEFAULT 5,    -- jobs per digest
+    digest_hour_utc   INTEGER NOT NULL DEFAULT 6,    -- 0-23, when 6:15 cron should send
+    timezone          TEXT NOT NULL DEFAULT 'UTC',
+    updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+INSERT OR IGNORE INTO schema_version (version) VALUES (5);

@@ -159,6 +159,18 @@ export const api = {
     request<Interview>(`/api/applications/${appId}/interviews`, {
       method: "POST", body: JSON.stringify(body),
     }),
+  updateInterview: (
+    appId: string,
+    interviewId: string,
+    patch: Partial<{
+      round: string; scheduled_at: string; duration_min: number;
+      interviewer_names: string[]; location: string; notes: string;
+      outcome: string;
+    }>,
+  ) =>
+    request<Interview>(`/api/applications/${appId}/interviews/${interviewId}`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    }),
   salary: (appId: string) =>
     request<SalaryDetails[]>(`/api/applications/${appId}/salary`),
   addSalary: (appId: string, body: Partial<SalaryDetails>) =>
@@ -190,6 +202,39 @@ export const api = {
     if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
     return res.blob();
   },
+
+  // ── Phase 6: notification preferences ─────────────────────────────
+  notificationPrefs: () =>
+    request<{
+      user_id: string;
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+      updated_at: string;
+    }>("/api/me/notification-preferences"),
+  updateNotificationPrefs: (
+    patch: Partial<{
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+    }>,
+  ) =>
+    request<{
+      user_id: string;
+      digest_enabled: boolean;
+      push_enabled: boolean;
+      digest_count: number;
+      digest_hour_utc: number;
+      timezone: string;
+      updated_at: string;
+    }>("/api/me/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
 };
 
 export { ApiError };

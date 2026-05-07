@@ -11,6 +11,7 @@ const links = [
   { href: "/tracker", label: "Tracker" },
   { href: "/resume", label: "Resume" },
   { href: "/tailored", label: "Tailored" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {

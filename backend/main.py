@@ -13,7 +13,8 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+import os
 
 from backend import config
 from backend.auth import require_user
@@ -1289,3 +1290,284 @@ async def get_interview_prep(
     if row is None:
         raise HTTPException(status_code=404, detail="interview prep not found")
     return InterviewPrepOut(**row)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 6 — Daily Digest Email + Push Notifications
+# ══════════════════════════════════════════════════════════════════════
+from backend.notifications.email import (
+    render_digest_html, render_digest_text, send_email,
+)
+from backend.notifications.push import (
+    is_valid_expo_token, send_push_to_user,
+)
+
+
+def _require_internal_secret(x_internal_secret: str | None) -> None:
+    """In SaaS mode the internal cron endpoints require this header. In
+    desktop mode the header check is skipped — the endpoints aren't reachable
+    from the network anyway (CORS blocks browser, server is bound to 127.0.0.1).
+    """
+    if config.is_desktop():
+        return
+    if not config.X_INTERNAL_SECRET or x_internal_secret != config.X_INTERNAL_SECRET:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+
+# ── Push token endpoints (mobile registers on launch) ────────────────
+class PushTokenRegisterBody(StrictBody):
+    expo_token: str
+    platform: str | None = None      # "ios" | "android" | "web"
+    device_name: str | None = None
+
+
+class PushTokenOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    expo_token: str
+    platform: str | None = None
+    device_name: str | None = None
+    enabled: bool
+    created_at: str
+    last_seen_at: str | None = None
+
+
+@app.post("/api/me/push-tokens", response_model=PushTokenOut, status_code=201)
+async def register_push_token(
+    body: PushTokenRegisterBody,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> PushTokenOut:
+    if not is_valid_expo_token(body.expo_token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="not a valid Expo push token (expected ExponentPushToken[...])",
+        )
+    tok_id = await storage.upsert_push_token(
+        user_id, body.expo_token, platform=body.platform, device_name=body.device_name,
+    )
+    rows = await storage.list_push_tokens(user_id, enabled_only=False)
+    row = next((r for r in rows if r["id"] == tok_id), None)
+    assert row is not None
+    return PushTokenOut(**{**row, "enabled": bool(row["enabled"])})
+
+
+@app.delete("/api/me/push-tokens/{expo_token:path}", status_code=204)
+async def disable_push_token(
+    expo_token: str,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> None:
+    # Defensive: ensure the token belongs to this user before disabling.
+    rows = await storage.list_push_tokens(user_id, enabled_only=False)
+    if not any(r["expo_token"] == expo_token for r in rows):
+        raise HTTPException(status_code=404, detail="push token not found")
+    await storage.disable_push_token(expo_token)
+
+
+# ── Notification preferences ─────────────────────────────────────────
+class NotificationPrefsBody(StrictBody):
+    digest_enabled: bool | None = None
+    push_enabled: bool | None = None
+    digest_count: int | None = Field(default=None, ge=1, le=20)
+    digest_hour_utc: int | None = Field(default=None, ge=0, le=23)
+    timezone: str | None = None
+
+
+class NotificationPrefsOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user_id: str
+    digest_enabled: bool
+    push_enabled: bool
+    digest_count: int
+    digest_hour_utc: int
+    timezone: str
+    updated_at: str
+
+
+@app.get("/api/me/notification-preferences", response_model=NotificationPrefsOut)
+async def get_notif_prefs(
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> NotificationPrefsOut:
+    prefs = await storage.get_notification_preferences(user_id)
+    return NotificationPrefsOut(**prefs)
+
+
+@app.put("/api/me/notification-preferences", response_model=NotificationPrefsOut)
+async def put_notif_prefs(
+    body: NotificationPrefsBody,
+    user_id: str = Depends(require_user),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> NotificationPrefsOut:
+    patch = body.model_dump(exclude_unset=True)
+    prefs = await storage.update_notification_preferences(user_id, patch)
+    return NotificationPrefsOut(**prefs)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Internal cron endpoints (called by GitHub Actions w/ X-Internal-Secret)
+# ══════════════════════════════════════════════════════════════════════
+class DigestRunBody(StrictBody):
+    digest_hour_utc: int = Field(default=6, ge=0, le=23)
+    """The hour-bucket to send. Cron at 6:15 UTC sends the bucket=6 group."""
+
+
+class DigestRunResponse(StrictBody):
+    sent: int
+    skipped_no_jobs: int
+    failed: int
+    errors: list[str] = []
+
+
+@app.post("/internal/digest/run", response_model=DigestRunResponse)
+async def run_daily_digest(
+    body: DigestRunBody,
+    x_internal_secret: str | None = Header(default=None, alias="X-Internal-Secret"),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> DigestRunResponse:
+    _require_internal_secret(x_internal_secret)
+
+    web_base = os.getenv("WEB_BASE_URL", "http://127.0.0.1:3000")
+    users = await storage.list_users_for_digest(body.digest_hour_utc)
+
+    sent = 0
+    skipped = 0
+    failed = 0
+    errors: list[str] = []
+
+    for u in users:
+        try:
+            jobs = await storage.jobs_for_user_digest(
+                u["id"], limit=int(u.get("digest_count") or 5),
+            )
+            if not jobs:
+                skipped += 1
+                continue
+
+            subject, html_body = render_digest_html(
+                user_email=u["email"],
+                plan=u.get("plan", "free"),
+                jobs=jobs,
+                web_base_url=web_base,
+            )
+            text_body = render_digest_text(jobs=jobs, web_base_url=web_base)
+
+            res = await send_email(
+                to=u["email"],
+                subject=subject,
+                html_body=html_body,
+                text_body=text_body,
+            )
+            await storage.log_email_digest(
+                u["id"],
+                subject=subject,
+                job_ids=[j["id"] for j in jobs],
+                resend_id=res.get("id"),
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            err_msg = f"{u.get('email', u['id'])}: {exc}"
+            errors.append(err_msg)
+            log.warning("digest send failed for %s", err_msg)
+
+    return DigestRunResponse(sent=sent, skipped_no_jobs=skipped, failed=failed, errors=errors[:10])
+
+
+class PushRunResponse(StrictBody):
+    interview_reminders: int
+    follow_up_reminders: int
+    stale_alerts: int
+    tokens_disabled: int
+
+
+@app.post("/internal/push/run", response_model=PushRunResponse)
+async def run_push_notifications(
+    x_internal_secret: str | None = Header(default=None, alias="X-Internal-Secret"),
+    storage: StorageAdapter = Depends(storage_dep),
+) -> PushRunResponse:
+    _require_internal_secret(x_internal_secret)
+
+    interview_count = 0
+    follow_up_count = 0
+    stale_count = 0
+    tokens_disabled = 0
+
+    async def _push_for_user(user_id: str, *, kind: str, title: str, body: str,
+                             application_id: str | None = None) -> None:
+        """Send to all of a user's enabled devices, log result, disable broken tokens."""
+        nonlocal tokens_disabled
+        prefs = await storage.get_notification_preferences(user_id)
+        if not prefs.get("push_enabled", True):
+            return
+
+        rows = await storage.list_push_tokens(user_id, enabled_only=True)
+        if not rows:
+            return
+
+        results = await send_push_to_user(
+            expo_tokens=[r["expo_token"] for r in rows],
+            title=title,
+            body=body,
+            data={"application_id": application_id} if application_id else None,
+        )
+        for tok, ticket in results:
+            if ticket.get("status") == "error":
+                err = (ticket.get("details") or {}).get("error") or ticket.get("message", "unknown")
+                if err in ("DeviceNotRegistered", "InvalidCredentials"):
+                    await storage.disable_push_token(tok, error=err)
+                    tokens_disabled += 1
+
+        await storage.log_push_notification(
+            user_id, kind=kind, title=title, body=body, application_id=application_id,
+        )
+
+    # 1) Interview reminders (24h ahead)
+    upcoming = await storage.applications_with_upcoming_interviews(hours_ahead=24)
+    for app in upcoming:
+        when = app.get("interview_scheduled_at", "")
+        round_label = (app.get("interview_round") or "interview").replace("_", " ")
+        await _push_for_user(
+            app["user_id"],
+            kind="interview_reminder",
+            title=f"Interview tomorrow: {app['company']}",
+            body=f"{round_label.capitalize()} for {app['title']} at {when}",
+            application_id=app["id"],
+        )
+        interview_count += 1
+
+    # 2) Follow-up reminders
+    follow_ups = await storage.applications_with_due_follow_ups()
+    for app in follow_ups:
+        await _push_for_user(
+            app["user_id"],
+            kind="follow_up",
+            title=f"Time to follow up: {app['company']}",
+            body=f"You set a reminder for {app['title']}",
+            application_id=app["id"],
+        )
+        await storage.update_application(
+            app["id"], app["user_id"], {"follow_up_notified": True},
+        )
+        follow_up_count += 1
+
+    # 3) Stale alerts (14+ days no movement)
+    stale = await storage.stale_applications(days=14)
+    for app in stale:
+        await _push_for_user(
+            app["user_id"],
+            kind="stale_application",
+            title=f"Still waiting on {app['company']}?",
+            body=f"{app['title']} hasn't moved in 2+ weeks. Time to follow up?",
+            application_id=app["id"],
+        )
+        stale_count += 1
+
+    return PushRunResponse(
+        interview_reminders=interview_count,
+        follow_up_reminders=follow_up_count,
+        stale_alerts=stale_count,
+        tokens_disabled=tokens_disabled,
+    )

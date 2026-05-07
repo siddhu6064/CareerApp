@@ -91,6 +91,13 @@ def _next_month_start(now: datetime) -> datetime:
     return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
 
 
+def _row_to_prefs(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["digest_enabled"] = bool(out.get("digest_enabled", 1))
+    out["push_enabled"] = bool(out.get("push_enabled", 1))
+    return out
+
+
 def _row_to_prep(row: dict[str, Any]) -> dict[str, Any]:
     """Deserialize JSON columns on an interview_prep row."""
     import json as _json
@@ -951,3 +958,280 @@ class SqliteAdapter(StorageAdapter):
         async with self._db.execute(sql, params) as cur:
             rows = await cur.fetchall()
         return [_row_to_prep(dict(r)) for r in rows]
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Phase 6 — Notifications
+    # ══════════════════════════════════════════════════════════════════════
+    async def upsert_push_token(
+        self,
+        user_id: str,
+        expo_token: str,
+        *,
+        platform: str | None = None,
+        device_name: str | None = None,
+    ) -> str:
+        assert self._db is not None
+        import uuid
+
+        # Token is unique; SQLite ON CONFLICT updates the existing row.
+        async with self._db.execute(
+            "SELECT id FROM push_tokens WHERE expo_token = ?", (expo_token,),
+        ) as cur:
+            existing = await cur.fetchone()
+
+        now = _utc_now()
+        if existing:
+            tok_id = existing["id"]
+            await self._db.execute(
+                """
+                UPDATE push_tokens
+                SET user_id = ?, platform = COALESCE(?, platform),
+                    device_name = COALESCE(?, device_name),
+                    enabled = 1, last_seen_at = ?, last_error = NULL
+                WHERE id = ?
+                """,
+                (user_id, platform, device_name, now, tok_id),
+            )
+        else:
+            tok_id = f"pt_{uuid.uuid4().hex[:16]}"
+            await self._db.execute(
+                """
+                INSERT INTO push_tokens
+                    (id, user_id, expo_token, platform, device_name, enabled, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
+                """,
+                (tok_id, user_id, expo_token, platform, device_name, now),
+            )
+        await self._db.commit()
+        return tok_id
+
+    async def list_push_tokens(self, user_id: str, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+        assert self._db is not None
+        sql = "SELECT * FROM push_tokens WHERE user_id = ?"
+        if enabled_only:
+            sql += " AND enabled = 1"
+        sql += " ORDER BY last_seen_at DESC NULLS LAST"
+        async with self._db.execute(sql, (user_id,)) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def disable_push_token(self, expo_token: str, *, error: str | None = None) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE push_tokens SET enabled = 0, last_error = ? WHERE expo_token = ?",
+            (error, expo_token),
+        )
+        await self._db.commit()
+        return (cur.rowcount or 0) > 0
+
+    async def get_notification_preferences(self, user_id: str) -> dict[str, Any]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM notification_preferences WHERE user_id = ?", (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return _row_to_prefs(dict(row))
+
+        # Lazy-create default
+        await self._db.execute(
+            "INSERT INTO notification_preferences (user_id) VALUES (?)", (user_id,),
+        )
+        await self._db.commit()
+        async with self._db.execute(
+            "SELECT * FROM notification_preferences WHERE user_id = ?", (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        return _row_to_prefs(dict(row))
+
+    async def update_notification_preferences(
+        self, user_id: str, patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        assert self._db is not None
+        # Ensure row exists
+        await self.get_notification_preferences(user_id)
+
+        sets: list[str] = []
+        params: list[Any] = []
+        for col in ("digest_enabled", "push_enabled", "digest_count",
+                    "digest_hour_utc", "timezone"):
+            if col in patch:
+                v = patch[col]
+                if col in ("digest_enabled", "push_enabled"):
+                    v = 1 if v else 0
+                sets.append(f"{col} = ?")
+                params.append(v)
+        if not sets:
+            return await self.get_notification_preferences(user_id)
+        sets.append("updated_at = ?")
+        params.append(_utc_now())
+        params.append(user_id)
+        await self._db.execute(
+            f"UPDATE notification_preferences SET {', '.join(sets)} WHERE user_id = ?",
+            params,
+        )
+        await self._db.commit()
+        return await self.get_notification_preferences(user_id)
+
+    async def list_users_for_digest(self, digest_hour_utc: int) -> list[dict[str, Any]]:
+        assert self._db is not None
+        # User must have email + opted-in digest + matching hour. Defaults to enabled=1.
+        async with self._db.execute(
+            """
+            SELECT u.id, u.email, u.plan,
+                   COALESCE(np.digest_count, 5)     AS digest_count,
+                   COALESCE(np.digest_hour_utc, 6)  AS digest_hour_utc
+            FROM users u
+            LEFT JOIN notification_preferences np ON np.user_id = u.id
+            WHERE u.email IS NOT NULL
+              AND u.email != ''
+              AND COALESCE(np.digest_enabled, 1) = 1
+              AND COALESCE(np.digest_hour_utc, 6) = ?
+            """,
+            (digest_hour_utc,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def log_email_digest(
+        self, user_id: str, *, subject: str, job_ids: list[str], resend_id: str | None,
+    ) -> str:
+        assert self._db is not None
+        import json as _json, uuid
+        log_id = f"ed_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO email_digest_log
+                (id, user_id, subject, job_ids, resend_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (log_id, user_id, subject, _json.dumps(job_ids), resend_id),
+        )
+        await self._db.commit()
+        return log_id
+
+    async def log_push_notification(
+        self,
+        user_id: str,
+        *,
+        kind: str,
+        title: str,
+        body: str,
+        application_id: str | None = None,
+    ) -> str:
+        assert self._db is not None
+        import uuid
+        log_id = f"pn_{uuid.uuid4().hex[:16]}"
+        await self._db.execute(
+            """
+            INSERT INTO push_notifications
+                (id, user_id, kind, title, body, application_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (log_id, user_id, kind, title, body, application_id),
+        )
+        await self._db.commit()
+        return log_id
+
+    async def applications_with_due_follow_ups(self) -> list[dict[str, Any]]:
+        assert self._db is not None
+        now = _utc_now()
+        async with self._db.execute(
+            """
+            SELECT a.*, u.email, u.id AS uid
+            FROM applications a
+            JOIN users u ON u.id = a.user_id
+            WHERE a.follow_up_date IS NOT NULL
+              AND a.follow_up_date <= ?
+              AND a.follow_up_notified = 0
+              AND a.status NOT IN ('rejected', 'accepted')
+            """,
+            (now,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_application(dict(r)) | {"email": r["email"]} for r in rows]
+
+    async def applications_with_upcoming_interviews(self, *, hours_ahead: int = 24) -> list[dict[str, Any]]:
+        assert self._db is not None
+        from datetime import datetime, timedelta, timezone
+
+        now_dt = datetime.now(timezone.utc)
+        cutoff = (now_dt + timedelta(hours=hours_ahead)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z"
+        now_str = _utc_now()
+
+        async with self._db.execute(
+            """
+            SELECT a.*, i.id AS interview_id, i.round, i.scheduled_at, i.location,
+                   u.email
+            FROM interviews i
+            JOIN applications a ON a.id = i.application_id
+            JOIN users u ON u.id = a.user_id
+            WHERE i.scheduled_at IS NOT NULL
+              AND i.scheduled_at >= ?
+              AND i.scheduled_at <= ?
+              AND COALESCE(i.outcome, 'pending') = 'pending'
+            ORDER BY i.scheduled_at ASC
+            """,
+            (now_str, cutoff),
+        ) as cur:
+            rows = await cur.fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = _row_to_application(dict(r))
+            d["interview_id"] = r["interview_id"]
+            d["interview_round"] = r["round"]
+            d["interview_scheduled_at"] = r["scheduled_at"]
+            d["interview_location"] = r["location"]
+            d["email"] = r["email"]
+            out.append(d)
+        return out
+
+    async def stale_applications(self, *, days: int = 14) -> list[dict[str, Any]]:
+        assert self._db is not None
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z"
+        async with self._db.execute(
+            """
+            SELECT a.*, u.email
+            FROM applications a
+            JOIN users u ON u.id = a.user_id
+            WHERE a.updated_at < ?
+              AND a.status IN ('applied', 'phone_screen', 'technical', 'onsite')
+            """,
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_application(dict(r)) | {"email": r["email"]} for r in rows]
+
+    async def jobs_for_user_digest(
+        self,
+        user_id: str,
+        *,
+        limit: int = 5,
+        since_hours: int = 24,
+    ) -> list[dict[str, Any]]:
+        assert self._db is not None
+        from datetime import datetime, timedelta, timezone
+        since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")[:-4] + "Z"
+
+        # Pull recent active jobs the user hasn't already saved/applied to.
+        # `created_at` is when WE first saw the job; `posted_date` is the
+        # job's own publish time. Use `created_at` for "freshness in our feed".
+        async with self._db.execute(
+            """
+            SELECT j.*
+            FROM jobs j
+            WHERE j.active = 1
+              AND j.created_at >= ?
+              AND j.id NOT IN (
+                  SELECT job_id FROM applications
+                  WHERE user_id = ? AND job_id IS NOT NULL
+              )
+            ORDER BY COALESCE(j.quality_score, 0) DESC, j.posted_date DESC, j.created_at DESC
+            LIMIT ?
+            """,
+            (since, user_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_job(dict(r)) for r in rows]

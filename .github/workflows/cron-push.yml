@@ -1,0 +1,25 @@
+name: cron · push notifications
+
+# 06:30 UTC daily — interview reminders, follow-up reminders, stale alerts.
+# Runs after the digest email so we don't double-notify users in the same minute.
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  send-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /internal/push/run
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -X POST "$API_URL/internal/push/run" \
+            -H "Content-Type: application/json" \
+            -H "X-Internal-Secret: $INTERNAL_SECRET" \
+            -d '{}' \
+            --retry 3 --retry-delay 30 --max-time 300 \
+            -w "\nHTTP %{http_code}\n"

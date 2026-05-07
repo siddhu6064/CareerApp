@@ -146,10 +146,10 @@ function Column({
           className={`kanban-card ${draggedId === app.id ? "dragging" : ""}`}
         >
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
+            <Link href={`/applications/${app.id}`} className="min-w-0 flex-1 hover:underline">
               <p className="text-sm font-semibold truncate">{app.title}</p>
               <p className="text-xs text-[var(--color-ink-soft)] truncate">{app.company}</p>
-            </div>
+            </Link>
             <button
               onClick={() => onDelete(app.id)}
               className="text-[var(--color-ink-soft)] hover:text-red-600 text-xs"

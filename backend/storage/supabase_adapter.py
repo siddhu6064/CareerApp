@@ -98,3 +98,17 @@ class SupabaseAdapter(StorageAdapter):
     async def get_interview_prep(self, prep_id, user_id): raise NotImplementedError
     async def get_latest_interview_prep_for_job(self, user_id, job_id): raise NotImplementedError
     async def list_interview_prep(self, user_id, **kwargs): raise NotImplementedError
+
+    # ── Phase 6 stubs ────────────────────────────────────────────────────
+    async def upsert_push_token(self, user_id, expo_token, **kwargs): raise NotImplementedError
+    async def list_push_tokens(self, user_id, **kwargs): raise NotImplementedError
+    async def disable_push_token(self, expo_token, **kwargs): raise NotImplementedError
+    async def get_notification_preferences(self, user_id): raise NotImplementedError
+    async def update_notification_preferences(self, user_id, patch): raise NotImplementedError
+    async def list_users_for_digest(self, digest_hour_utc): raise NotImplementedError
+    async def log_email_digest(self, user_id, **kwargs): raise NotImplementedError
+    async def log_push_notification(self, user_id, **kwargs): raise NotImplementedError
+    async def applications_with_due_follow_ups(self): raise NotImplementedError
+    async def applications_with_upcoming_interviews(self, **kwargs): raise NotImplementedError
+    async def stale_applications(self, **kwargs): raise NotImplementedError
+    async def jobs_for_user_digest(self, user_id, **kwargs): raise NotImplementedError

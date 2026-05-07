@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform, Alert,
 } from "react-native";
+import { useRouter } from "expo-router";
 import type { Application, ApplicationStatus } from "@/lib/types";
 import { APPLICATION_STATUSES, STATUS_LABEL } from "@/lib/types";
 import { StatusBadge } from "./StatusBadge";
@@ -14,7 +15,12 @@ export function ApplicationCard({
   onMove: (status: ApplicationStatus) => void;
   onDelete: () => void;
 }) {
+  const router = useRouter();
   const [moving, setMoving] = useState(false);
+
+  function openDetail() {
+    router.push({ pathname: "/applications/[id]", params: { id: app.id } });
+  }
 
   function pickStatus() {
     if (moving) return;
@@ -52,7 +58,7 @@ export function ApplicationCard({
   }
 
   return (
-    <View style={s.card}>
+    <TouchableOpacity style={s.card} onPress={openDetail} activeOpacity={0.7}>
       <View style={s.headerRow}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.title} numberOfLines={1}>{app.title}</Text>
@@ -76,10 +82,13 @@ export function ApplicationCard({
         <Text style={s.notes} numberOfLines={2}>{app.notes}</Text>
       )}
 
-      <TouchableOpacity style={s.moveBtn} onPress={pickStatus}>
-        <Text style={s.moveBtnText}>Move →</Text>
-      </TouchableOpacity>
-    </View>
+      <View style={s.actionRow}>
+        <TouchableOpacity style={s.moveBtn} onPress={pickStatus}>
+          <Text style={s.moveBtnText}>Move →</Text>
+        </TouchableOpacity>
+        <Text style={s.detailHint}>Tap to open →</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -104,4 +113,6 @@ const s = StyleSheet.create({
     backgroundColor: colors.brandBg,
   },
   moveBtnText: { color: colors.brand, fontSize: fontSize.sm, fontWeight: "600" },
+  actionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  detailHint: { color: colors.inkMuted, fontSize: fontSize.xs },
 });

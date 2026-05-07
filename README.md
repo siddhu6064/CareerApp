@@ -1,135 +1,157 @@
-# [AppName] — Phases 1–5 (backend) + 4a (web UI)
+# [AppName] — Phases 1–6
 
-Multi-tenant SaaS job-search platform. Desktop variant uses the same backend
-in local mode (BYOK Anthropic key, SQLite, local files). Phase 4a is the
-Next.js 15 web frontend wired to all 26 backend endpoints.
+Multi-tenant SaaS job-search platform with web + mobile clients, Render-ready
+backend, daily digest email, push notifications, and GitHub Actions cron.
+
+Desktop variant uses the same backend in local mode (BYOK Anthropic key,
+SQLite, local files). The same FastAPI app powers both — `APPNAME_MODE`
+selects storage and auth strategy.
+
+## Status
+
+| Phase | Status | Notes |
+|------:|:-------|:------|
+| 1 — Foundation                  | ✅ done | StorageAdapter pattern, mode-aware config, local-token auth |
+| 2 — Jobs feed                   | ✅ done | JSearch + Adzuna stubs, JustHireMe quality_gate + tagger, dedup, TTL cache |
+| 3 — Resume + Tracker            | ✅ done | Master resume parser (stub + Sonnet ready), 8-stage tracker, sub-resources |
+| 4a — Web UI                     | ✅ done | Next.js 15, 9 routes, kanban, settings panel |
+| 4b — Mobile                     | ✅ done | Expo SDK 52, Router 4, push registration on auth |
+| 5 — AI Tailor + PDF             | ✅ done | Sonnet structured output, WeasyPrint, Free 3 / Pro 100 / Coach 100 / Desktop ∞ |
+| 6 — Daily digest + push         | ✅ done | Resend digest, Expo push, GitHub Actions cron 06:00/06:15/06:30 UTC |
+| 7 — Billing                     | ⏳ next  | LemonSqueezy webhooks |
+| 8 — Cover letters + interview prep | ✅ initial | Pre-existing scaffold passing tests |
+| 9 — Coach features              | ⏳ later | Multi-client, white-label PDFs |
+| 10 — Desktop variant            | ⏳ later | Tauri shell |
+
+## Test status
+
+- **88 backend tests passing** (`pytest backend/tests/`)
+- Web typecheck + production build clean (Next 15.5.16)
+- Mobile TypeScript clean (Expo SDK 52)
+- 39 backend endpoints
 
 ## Repo layout
 
 ```
 appname/
-├── backend/        # FastAPI + SQLite (desktop) / Supabase (SaaS)
-│   ├── main.py
-│   ├── storage/    # StorageAdapter (Sqlite | Supabase)
-│   ├── jobs/       # JSearch fetcher + tagger + pipeline
-│   ├── resumes/    # Sonnet parser + file storage adapter
-│   ├── tailor/     # AI tailor: scorer + sonnet + PDF render
-│   ├── agents/justhireme/  # MIT-licensed scoring engine
-│   └── tests/      # 53 tests, pytest-asyncio
-├── web/            # Next.js 15 (App Router) + Tailwind v4 + Zustand
-│   ├── app/        # /jobs, /tracker, /resume, /tailored, /signin
-│   ├── components/ # JobCard, KanbanBoard (inlined), TailorPanel, etc.
-│   └── lib/        # api.ts (typed client), store.ts (Zustand), types.ts
-└── LICENSE-justhireme   # MIT credit for ported scoring engine
+├── backend/                       # FastAPI + SQLite (desktop) / Supabase (SaaS)
+│   ├── main.py                    # 39 endpoints
+│   ├── config.py                  # APPNAME_MODE detection + env wiring
+│   ├── storage/                   # StorageAdapter abstract base + impls
+│   ├── auth/                      # local_token (desktop) + supabase_jwt stub
+│   ├── jobs/                      # JSearch/Adzuna fetchers, tagger, pipeline, cache
+│   ├── resumes/                   # Sonnet parser + file storage adapter
+│   ├── tailor/                    # AI tailor: scorer + sonnet + WeasyPrint render
+│   ├── notifications/             # Resend email + Expo push (Phase 6)
+│   ├── agents/justhireme/         # MIT-licensed scoring engine port
+│   ├── tests/                     # pytest-asyncio, 88 tests
+│   ├── Dockerfile                 # multi-stage, all WeasyPrint native libs
+│   ├── render.yaml                # Render Blueprint, 13 env vars
+│   ├── DEPLOY.md                  # ops doc
+│   └── requirements.txt           # pinned versions
+├── web/                           # Next.js 15 (App Router) + Tailwind v4 + Zustand
+│   ├── app/                       # /, /signin, /jobs, /jobs/[id], /tracker,
+│   │                              # /applications/[id], /resume, /tailored, /settings
+│   ├── components/                # JobCard, JobFilters, TailorPanel, StatusBadge, Nav
+│   └── lib/                       # api.ts (typed client), store.ts (Zustand), types.ts
+├── mobile/                        # Expo SDK 52 + Expo Router 4 + Zustand
+│   ├── app/                       # (tabs), signin, jobs/[id], applications/[id]
+│   ├── components/                # JobCard, ApplicationCard, TailorPanel, ScoreCircle
+│   └── lib/                       # api.ts, auth.ts (SecureStore), notifications.ts
+├── .github/workflows/             # 3 cron jobs (Phase 6)
+│   ├── cron-jobs-fetch.yml        # 06:00 UTC daily
+│   ├── cron-digest.yml            # 06:15 UTC daily
+│   └── cron-push.yml              # 06:30 UTC daily
+└── LICENSE-justhireme             # MIT credit for ported scoring engine
 ```
 
-## Run the stack (desktop dev mode, no signups)
+## Quick start (desktop dev mode — no signups, no API keys)
 
-### 1. Backend
+### Backend
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt   # or install fastapi uvicorn aiosqlite anthropic httpx pydantic weasyprint python-multipart
-APPNAME_MODE=desktop STUB_JOBS_API=1 STUB_ANTHROPIC=1 \
+pip install -r requirements-dev.txt
+
+APPNAME_MODE=desktop \
+STUB_JOBS_API=1 STUB_ANTHROPIC=1 STUB_RESEND=1 STUB_EXPO_PUSH=1 \
   uvicorn backend.main:app --reload
 ```
 
-The console prints a per-launch token:
+The server prints a per-launch bearer token like:
 
 ```
-[AppName] mode=desktop  api_token=8cc5f978...
+[AppName] mode=desktop  api_token=<hex>
 ```
 
-Copy this. You'll paste it into the web UI.
+Copy that — both clients need it for auth.
 
-### 2. Web
+### Web
 
 ```bash
 cd web
-cp .env.example .env.local  # NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 npm install --legacy-peer-deps
-npm run dev
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-Open `http://localhost:3000`. You'll be redirected to `/signin`. Paste the
-backend token. The token is stored in `localStorage` and attached as a
-Bearer header to every API call.
+Open `http://localhost:3000`, paste the token on `/signin`, then visit `/jobs`
+and click "Ingest sample jobs" to populate the feed.
 
-### 3. Mobile
+### Mobile (Expo)
 
 ```bash
 cd mobile
 npm install --legacy-peer-deps
-# Backend URL — point at your dev machine's LAN IP (Expo Go can't resolve 127.0.0.1)
-echo 'EXPO_PUBLIC_API_URL=http://192.168.1.x:8000' > .env.local
 npx expo start
 ```
 
-Scan the QR code with Expo Go (iOS/Android). On first launch you'll land on
-the Sign-in screen — paste the backend token. The token is stored in the
-device Keychain/Keystore via `expo-secure-store`.
+Edit `app.json`'s `extra.apiUrl` if you need the device to hit a non-localhost
+backend URL (e.g. your laptop's LAN IP for a real phone).
 
-The app uses Expo Router 4 (file-based, mirrors `web/app/` layout):
+## Production deploy
 
-```
-mobile/app/
-├── _layout.tsx        # Root Stack
-├── index.tsx          # Redirect to /(tabs)/jobs or /signin
-├── signin.tsx         # Token paste screen
-├── (tabs)/
-│   ├── jobs.tsx       # Job feed (FlatList)
-│   ├── tracker.tsx    # Status filter chips + ApplicationCard list
-│   ├── resume.tsx     # Upload (expo-document-picker) + manual builder
-│   └── tailored.tsx   # List + ScoreCircle + Share PDF (expo-sharing)
-└── jobs/[id].tsx      # Detail + Tailor + Save to tracker
-```
+### Backend → Render
 
-### 4. Try it
+1. Connect this repo to Render.
+2. Render auto-detects `backend/render.yaml` (Blueprint).
+3. Set the secrets in the dashboard (all marked `sync: false`):
+   `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
+   `SUPABASE_JWT_SECRET`, `R2_BUCKET`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_ENDPOINT`,
+   `JSEARCH_API_KEY`, `ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, `RESEND_API_KEY`.
+4. Render auto-generates `INTERNAL_SECRET`. Copy that into GitHub Actions
+   secrets as `INTERNAL_SECRET` + add `API_URL=https://your-render-url`.
 
-1. Click **Ingest sample jobs** on the `/jobs` sidebar (12 fixture jobs land).
-2. Go to `/resume` and either upload a `.txt` resume or use the builder.
-3. Open any job → **Tailor for this job** → see ATS score + match points + gaps.
-4. Download the PDF (real WeasyPrint output).
-5. Drag application cards between the 8 kanban columns on `/tracker`.
+### GitHub Actions cron
 
-## Stubs vs production
+The three workflows in `.github/workflows/` need two repository secrets:
 
-| Variable             | Default | Effect                                                    |
-|----------------------|---------|-----------------------------------------------------------|
-| `STUB_JOBS_API=1`    | dev on  | Skip JSearch HTTP, load `jobs/fixtures/sample_jobs.json` |
-| `STUB_ANTHROPIC=1`   | dev on  | Skip Sonnet/Haiku, use deterministic heuristics           |
-| `ANTHROPIC_API_KEY`  | unset   | Real Sonnet for tailor + parser when stubs are off        |
-| `APPNAME_MODE`       | `desktop` | `saas` flips to SupabaseAdapter (NotImplementedError until provisioned) |
+- `API_URL` — your Render service URL
+- `INTERNAL_SECRET` — must match Render's value
 
-## Tier gates
+Schedules:
+- `cron-jobs-fetch.yml` — 06:00 UTC daily (job ingestion)
+- `cron-digest.yml` — 06:15 UTC daily (digest email, hour=6 bucket)
+- `cron-push.yml` — 06:30 UTC daily (interview/follow-up/stale push)
 
-Enforced server-side in `main.py`:
+Each workflow has `workflow_dispatch` so you can trigger them manually for testing.
 
-| Plan      | Tracker (active apps) | Tailor / month |
-|-----------|-----------------------|----------------|
-| `free`    | 10                    | 3              |
-| `pro`     | unlimited             | 100            |
-| `coach`   | unlimited             | 100 + bulk     |
-| `desktop` | unlimited             | unlimited (BYOK) |
+## Tier gates (PRD §11)
 
-Default plan in dev mode is `desktop` (set when `upsert_user` runs at boot
-in `local_token.py`). Override per-test with `storage.upsert_user(uid, mail, plan='free')`.
+| Tier        | Tracker      | Tailors/mo | Digest ATS % | Cover letters | Interview prep | Analytics |
+|-------------|--------------|-----------:|:-------------|:--------------|:---------------|:----------|
+| Free        | 10 active    | 3          | hidden       | —             | —              | —         |
+| Pro ($19)   | unlimited    | 100        | shown        | ✓             | ✓              | ✓         |
+| Coach ($49) | unlimited + 10 clients | 100 | shown    | ✓             | ✓              | ✓ + bulk + white-label |
+| Desktop     | unlimited    | unlimited (BYOK) | always shown | ✓        | ✓              | ✓         |
 
-## Tests
+Gates are enforced server-side. The Free tracker limit (10 active) and Free
+tailor limit (3/mo) have explicit tests in `test_applications.py` and
+`test_tailor.py`.
 
-```bash
-cd backend
-APPNAME_MODE=desktop STUB_JOBS_API=1 STUB_ANTHROPIC=1 \
-  python -m pytest backend/tests/ -q
-```
+## Attribution
 
-53 tests, ~6s.
-
-## What's not done yet
-
-- Phase 6 — Email digest + push notifications (Resend + Expo Push)
-- Phase 7 — Supabase signup, RLS, real Auth (replaces local token flow)
-- Phase 8 — Cover letter + interview prep (more Sonnet calls)
-- Phase 9 — LemonSqueezy billing + Coach bulk tailor
-- Phase 10 — Tauri desktop variant (free product, BYOK)
+The deterministic ATS scoring engine in `backend/agents/justhireme/` is
+adapted from [vasu-devs/justhireme](https://github.com/vasu-devs/justhireme),
+MIT-licensed. Each ported file carries an attribution header; the project
+LICENSE lives at `LICENSE-justhireme` at the repo root.

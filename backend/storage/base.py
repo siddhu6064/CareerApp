@@ -226,3 +226,85 @@ class StorageAdapter(ABC):
         self, user_id: str, *, job_id: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:
         ...
+
+    # ── Phase 6: notifications ───────────────────────────────────────────
+    @abstractmethod
+    async def upsert_push_token(
+        self,
+        user_id: str,
+        expo_token: str,
+        *,
+        platform: str | None = None,
+        device_name: str | None = None,
+    ) -> str:
+        """Register or refresh a device token. Returns the row id."""
+
+    @abstractmethod
+    async def list_push_tokens(self, user_id: str, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+        ...
+
+    @abstractmethod
+    async def disable_push_token(self, expo_token: str, *, error: str | None = None) -> bool:
+        """Mark a token as disabled (e.g. after Expo says DeviceNotRegistered)."""
+
+    @abstractmethod
+    async def get_notification_preferences(self, user_id: str) -> dict[str, Any]:
+        """Lazy-creates a default preferences row if none exists."""
+
+    @abstractmethod
+    async def update_notification_preferences(
+        self,
+        user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    async def list_users_for_digest(self, digest_hour_utc: int) -> list[dict[str, Any]]:
+        """Users who: have digest_enabled=1, match the hour, have an email."""
+
+    @abstractmethod
+    async def log_email_digest(
+        self,
+        user_id: str,
+        *,
+        subject: str,
+        job_ids: list[str],
+        resend_id: str | None,
+    ) -> str:
+        ...
+
+    @abstractmethod
+    async def log_push_notification(
+        self,
+        user_id: str,
+        *,
+        kind: str,
+        title: str,
+        body: str,
+        application_id: str | None = None,
+    ) -> str:
+        ...
+
+    @abstractmethod
+    async def applications_with_due_follow_ups(self) -> list[dict[str, Any]]:
+        """Applications where follow_up_date <= now AND not yet notified."""
+
+    @abstractmethod
+    async def applications_with_upcoming_interviews(self, *, hours_ahead: int = 24) -> list[dict[str, Any]]:
+        """Interviews scheduled in the next N hours, with their parent app + user info."""
+
+    @abstractmethod
+    async def stale_applications(self, *, days: int = 14) -> list[dict[str, Any]]:
+        """Applications stuck in the same status for N+ days."""
+
+    @abstractmethod
+    async def jobs_for_user_digest(
+        self,
+        user_id: str,
+        *,
+        limit: int = 5,
+        since_hours: int = 24,
+    ) -> list[dict[str, Any]]:
+        """Top N freshly-ingested jobs for a user. Phase 6 picks newest+highest-quality;
+        Phase 6.5 will rank by user preferences (saved field/level/locations)."""

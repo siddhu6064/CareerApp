@@ -1,0 +1,29 @@
+name: cron · jobs fetch
+
+# 06:00 UTC daily — populate fresh jobs ahead of the digest.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:        # allow manual runs
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /internal/jobs/fetch
+        env:
+          API_URL: ${{ secrets.API_URL }}                     # https://appname-api.onrender.com
+          INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}     # matches Render env
+        run: |
+          set -euo pipefail
+          curl -fsSL -X POST "$API_URL/internal/jobs/fetch" \
+            -H "Content-Type: application/json" \
+            -H "X-Internal-Secret: $INTERNAL_SECRET" \
+            -d '{"queries": [
+                  "software engineer", "frontend engineer", "backend engineer",
+                  "full stack engineer", "ml engineer", "data engineer", "data scientist",
+                  "product designer", "ux designer", "product manager",
+                  "devops engineer", "platform engineer"
+                ]}' \
+            --retry 3 --retry-delay 30 --max-time 180 \
+            -w "\nHTTP %{http_code}\n"
