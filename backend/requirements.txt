@@ -31,4 +31,4 @@ supabase>=2.3.0,<3.0.0
 
 # Phase 10 — desktop-only deps
 apscheduler==3.10.4
-tzlocal==5.2
+tzlocal==5.3.1
