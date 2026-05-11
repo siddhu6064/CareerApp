@@ -27,7 +27,7 @@ weasyprint==68.1
 # PyJWT is used by supabase_jwt.py to verify HS256 tokens in SaaS mode.
 PyJWT>=2.8.0,<3.0.0
 # supabase-py async client — used by SupabaseAdapter in SaaS mode.
-supabase>=2.3.0,<3.0.0
+supabase>=2.30.0,<3.0.0
 
 # Phase 10 — desktop-only deps
 apscheduler==3.10.4
